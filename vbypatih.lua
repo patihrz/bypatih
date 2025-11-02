@@ -1156,6 +1156,11 @@ local function setAntiAFK(state)
 end
 TabPlayer:CreateToggle({Name="Anti AFK",CurrentValue=false,Flag="AntiAFK",Callback=function(s) setAntiAFK(s) end})
 
+local function isKillerTeam()
+    local tn = LP.Team and LP.Team.Name and LP.Team.Name:lower() or ""
+    return tn:find("killer", 1, true) ~= nil
+end
+
 TabPlayer:CreateSection("🎯 Killer Assistance")
 local silentAimEnabled = false
 local hitboxSize = 10
@@ -1356,7 +1361,6 @@ LP:GetPropertyChangedSignal("Team"):Connect(function()
     end
 end)
 
-local function isKillerTeam() local tn=LP.Team and LP.Team.Name and LP.Team.Name:lower() or "" return tn:find("killer",1,true)~=nil end
 local guiWhitelist = {Rayfield=true,DevConsoleMaster=true,RobloxGui=true,PlayerList=true,Chat=true,BubbleChat=true,Backpack=true}
 local skillExactNames = {SkillCheckPromptGui=true,["SkillCheckPromptGui-con"]=true,SkillCheckEvent=true,SkillCheckFailEvent=true,SkillCheckResultEvent=true}
 local function isExactSkill(inst) local n=inst and inst.Name if not n then return false end if skillExactNames[n] then return true end return n:lower():find("skillcheck",1,true)~=nil end
