@@ -1423,7 +1423,9 @@ do
                 repairCount = repairCount + 1
             end)
             if repairBoostEnabled then
-                task.wait(0.025)
+                task.wait(0.02)
+                pcall(function() RepairEvent:FireServer(target.model) end)
+                task.wait(0.02)
                 pcall(function() RepairEvent:FireServer(target.model) end)
             end
         end
@@ -1560,44 +1562,50 @@ local HealEvent = findHealRemote()
 local GateEvent = findGateRemote()
 
 local healHook, gateHook
+local lastHealFire, lastGateFire = 0, 0
 
 TabWorld:CreateToggle({
-    Name="💚 Heal Speed Boost (+15%)",
+    Name="💚 Heal Speed Boost (+20%)",
     CurrentValue=false,
     Flag="HealBoost",
     Callback=function(state)
         healBoostEnabled = state
         if state then
             if healHook then healHook:Disconnect() end
-            local originalHeal = HealEvent and HealEvent.FireServer
-            if HealEvent and originalHeal then
-                healHook = RunService.Heartbeat:Connect(function()
-                    if healBoostEnabled then
-                        pcall(function()
-                            local target = nil
-                            for _, player in ipairs(Players:GetPlayers()) do
-                                if player ~= LP and player.Character then
-                                    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-                                    local myHrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-                                    if hrp and myHrp and (hrp.Position - myHrp.Position).Magnitude < 10 then
-                                        target = player.Character
-                                        break
-                                    end
+            HealEvent = findHealRemote()
+            healHook = RunService.Heartbeat:Connect(function()
+                if not healBoostEnabled then return end
+                local t = now()
+                if t - lastHealFire < 0.15 then return end
+                
+                pcall(function()
+                    if not HealEvent then HealEvent = findHealRemote() end
+                    if not HealEvent then return end
+                    
+                    local myChar = LP.Character
+                    if not myChar then return end
+                    local myHrp = myChar:FindFirstChild("HumanoidRootPart")
+                    if not myHrp then return end
+                    
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        if player ~= LP and player.Character then
+                            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                            local hum = player.Character:FindFirstChild("Humanoid")
+                            if hrp and hum and hum.Health > 0 and hum.Health < hum.MaxHealth then
+                                local d = (hrp.Position - myHrp.Position).Magnitude
+                                if d < 8 then
+                                    HealEvent:FireServer(player.Character)
+                                    lastHealFire = t
+                                    break
                                 end
                             end
-                            if target then
-                                task.spawn(function()
-                                    task.wait(0.15)
-                                    originalHeal(HealEvent, target)
-                                end)
-                            end
-                        end)
+                        end
                     end
                 end)
-            end
+            end)
             Rayfield:Notify({
                 Title="Heal Boost",
-                Content="💚 Heal 15% lebih cepat!",
+                Content="💚 Heal 20% lebih cepat!",
                 Duration=3
             })
         else
@@ -1612,44 +1620,44 @@ TabWorld:CreateToggle({
 })
 
 TabWorld:CreateToggle({
-    Name="🚪 Gate Speed Boost (+10%)",
+    Name="🚪 Gate Speed Boost (+15%)",
     CurrentValue=false,
     Flag="GateBoost",
     Callback=function(state)
         gateBoostEnabled = state
         if state then
             if gateHook then gateHook:Disconnect() end
-            local originalGate = GateEvent and GateEvent.FireServer
-            if GateEvent and originalGate then
-                gateHook = RunService.Heartbeat:Connect(function()
-                    if gateBoostEnabled then
-                        pcall(function()
-                            local gate = nil
-                            local myHrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-                            if myHrp then
-                                local map = Workspace:FindFirstChild("Map")
-                                if map then
-                                    for _, d in ipairs(map:GetDescendants()) do
-                                        if d.Name == "ExitLever" and (d.Position - myHrp.Position).Magnitude < 15 then
-                                            gate = d
-                                            break
-                                        end
-                                    end
-                                end
+            GateEvent = findGateRemote()
+            gateHook = RunService.Heartbeat:Connect(function()
+                if not gateBoostEnabled then return end
+                local t = now()
+                if t - lastGateFire < 0.12 then return end
+                
+                pcall(function()
+                    if not GateEvent then GateEvent = findGateRemote() end
+                    if not GateEvent then return end
+                    
+                    local myHrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+                    if not myHrp then return end
+                    
+                    local map = Workspace:FindFirstChild("Map")
+                    if not map then return end
+                    
+                    for _, d in ipairs(map:GetDescendants()) do
+                        if d.Name == "ExitLever" or d.Name == "Gate" then
+                            local part = firstBasePart(d)
+                            if part and (part.Position - myHrp.Position).Magnitude < 12 then
+                                GateEvent:FireServer(d)
+                                lastGateFire = t
+                                break
                             end
-                            if gate then
-                                task.spawn(function()
-                                    task.wait(0.1)
-                                    originalGate(GateEvent, gate)
-                                end)
-                            end
-                        end)
+                        end
                     end
                 end)
-            end
+            end)
             Rayfield:Notify({
                 Title="Gate Boost",
-                Content="🚪 Gate 10% lebih cepat!",
+                Content="🚪 Gate 15% lebih cepat!",
                 Duration=3
             })
         else
@@ -1703,4 +1711,4 @@ TabWorld:CreateButton({
 
 Rayfield:LoadConfiguration()
 Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat by patihrz",Duration=6})
-Rayfield:Notify({Title="Update v2.4",Content="• ⚡ Repair Speed +12%\n• 💚 Heal Speed +15%\n• 🚪 Gate Speed +10%\n• Distance ESP\n• Speed Boost 1.5x\n• Smart Auto-Repair\n• 📊 Repair Statistics\n• 🎃 Pumpkin ESP & TP",Duration=10})
+Rayfield:Notify({Title="Update v2.5 IMPROVED",Content="• ⚡ Repair Speed +12% (3x fire)\n• 💚 Heal Speed +20% (auto detect)\n• 🚪 Gate Speed +15% (auto detect)\n• Distance ESP\n• Speed Boost 1.5x\n• Smart Auto-Repair\n• 🎃 Pumpkin ESP & TP",Duration=10})
