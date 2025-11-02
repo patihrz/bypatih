@@ -1296,7 +1296,7 @@ do
     local repairBoostEnabled = false
     local SCAN_INTERVAL = 1.0
     local REPAIR_TICK   = 0.25
-    local REPAIR_TICK_BOOSTED = 0.225
+    local REPAIR_TICK_BOOSTED = 0.22
     local AVOID_RADIUS  = 80
     local MOVE_DIST     = 35
     local UP_OFFSET     = Vector3.new(0, 3, 0)
@@ -1509,7 +1509,7 @@ do
     })
 
     TabWorld:CreateToggle({
-        Name="⚡ Repair Speed Boost (+10%)",
+        Name="⚡ Repair Speed Boost (+12%)",
         CurrentValue=false,
         Flag="RepairBoost",
         Callback=function(state)
@@ -1517,7 +1517,7 @@ do
             if state then
                 Rayfield:Notify({
                     Title="Repair Boost",
-                    Content="⚡ Repair 10% lebih cepat!",
+                    Content="⚡ Repair 12% lebih cepat!",
                     Duration=3
                 })
             else
@@ -1530,7 +1530,145 @@ do
         end
     })
 
-    TabWorld:CreateButton({
+    ReplicatedStorage.DescendantAdded:Connect(function(d)
+        if d:IsA("RemoteEvent") and d.Name=="RepairEvent" then RepairEvent=d end
+        if d:IsA("RemoteEvent") and d.Name=="RepairAnim"  then RepairAnim=d end
+    end)
+end
+
+TabWorld:CreateSection("⚡ Speed Boosts")
+local healBoostEnabled = false
+local gateBoostEnabled = false
+
+local function findHealRemote()
+    local r = ReplicatedStorage:FindFirstChild("Remotes")
+    if not r then return nil end
+    local h = r:FindFirstChild("Heal")
+    if not h then return nil end
+    return h:FindFirstChild("HealEvent")
+end
+
+local function findGateRemote()
+    local r = ReplicatedStorage:FindFirstChild("Remotes")
+    if not r then return nil end
+    local g = r:FindFirstChild("Gate")
+    if not g then return nil end
+    return g:FindFirstChild("OpenEvent") or g:FindFirstChild("GateEvent")
+end
+
+local HealEvent = findHealRemote()
+local GateEvent = findGateRemote()
+
+local healHook, gateHook
+
+TabWorld:CreateToggle({
+    Name="💚 Heal Speed Boost (+15%)",
+    CurrentValue=false,
+    Flag="HealBoost",
+    Callback=function(state)
+        healBoostEnabled = state
+        if state then
+            if healHook then healHook:Disconnect() end
+            local originalHeal = HealEvent and HealEvent.FireServer
+            if HealEvent and originalHeal then
+                healHook = RunService.Heartbeat:Connect(function()
+                    if healBoostEnabled then
+                        pcall(function()
+                            local target = nil
+                            for _, player in ipairs(Players:GetPlayers()) do
+                                if player ~= LP and player.Character then
+                                    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                                    local myHrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+                                    if hrp and myHrp and (hrp.Position - myHrp.Position).Magnitude < 10 then
+                                        target = player.Character
+                                        break
+                                    end
+                                end
+                            end
+                            if target then
+                                task.spawn(function()
+                                    task.wait(0.15)
+                                    originalHeal(HealEvent, target)
+                                end)
+                            end
+                        end)
+                    end
+                end)
+            end
+            Rayfield:Notify({
+                Title="Heal Boost",
+                Content="💚 Heal 15% lebih cepat!",
+                Duration=3
+            })
+        else
+            if healHook then healHook:Disconnect() healHook = nil end
+            Rayfield:Notify({
+                Title="Heal Boost",
+                Content="✗ Boost nonaktif",
+                Duration=2
+            })
+        end
+    end
+})
+
+TabWorld:CreateToggle({
+    Name="🚪 Gate Speed Boost (+10%)",
+    CurrentValue=false,
+    Flag="GateBoost",
+    Callback=function(state)
+        gateBoostEnabled = state
+        if state then
+            if gateHook then gateHook:Disconnect() end
+            local originalGate = GateEvent and GateEvent.FireServer
+            if GateEvent and originalGate then
+                gateHook = RunService.Heartbeat:Connect(function()
+                    if gateBoostEnabled then
+                        pcall(function()
+                            local gate = nil
+                            local myHrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+                            if myHrp then
+                                local map = Workspace:FindFirstChild("Map")
+                                if map then
+                                    for _, d in ipairs(map:GetDescendants()) do
+                                        if d.Name == "ExitLever" and (d.Position - myHrp.Position).Magnitude < 15 then
+                                            gate = d
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+                            if gate then
+                                task.spawn(function()
+                                    task.wait(0.1)
+                                    originalGate(GateEvent, gate)
+                                end)
+                            end
+                        end)
+                    end
+                end)
+            end
+            Rayfield:Notify({
+                Title="Gate Boost",
+                Content="🚪 Gate 10% lebih cepat!",
+                Duration=3
+            })
+        else
+            if gateHook then gateHook:Disconnect() gateHook = nil end
+            Rayfield:Notify({
+                Title="Gate Boost",
+                Content="✗ Boost nonaktif",
+                Duration=2
+            })
+        end
+    end
+})
+
+ReplicatedStorage.DescendantAdded:Connect(function(d)
+    if d:IsA("RemoteEvent") and d.Name == "HealEvent" then HealEvent = d end
+    if d:IsA("RemoteEvent") and (d.Name == "OpenEvent" or d.Name == "GateEvent") then GateEvent = d end
+end)
+
+TabWorld:CreateButton({
         Name="📊 Repair Statistics",
         Callback=function()
             local totalGens = 0
@@ -1563,11 +1701,6 @@ do
         end
     })
 
-    ReplicatedStorage.DescendantAdded:Connect(function(d)
-        if d:IsA("RemoteEvent") and d.Name=="RepairEvent" then RepairEvent=d end
-        if d:IsA("RemoteEvent") and d.Name=="RepairAnim"  then RepairAnim=d end
-    end)
-end
 Rayfield:LoadConfiguration()
 Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat by patihrz",Duration=6})
-Rayfield:Notify({Title="Update v2.2",Content="• Distance ESP\n• Speed Boost 1.5x\n• ⚡ Repair Speed +10%\n• Smart Auto-Repair\n• 📊 Repair Statistics\n• 🎃 Pumpkin ESP & TP\n• Better Notifications",Duration=8})
+Rayfield:Notify({Title="Update v2.4",Content="• ⚡ Repair Speed +12%\n• 💚 Heal Speed +15%\n• 🚪 Gate Speed +10%\n• Distance ESP\n• Speed Boost 1.5x\n• Smart Auto-Repair\n• 📊 Repair Statistics\n• 🎃 Pumpkin ESP & TP",Duration=10})
