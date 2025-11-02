@@ -1156,95 +1156,6 @@ local function setAntiAFK(state)
 end
 TabPlayer:CreateToggle({Name="Anti AFK",CurrentValue=false,Flag="AntiAFK",Callback=function(s) setAntiAFK(s) end})
 
-TabPlayer:CreateSection("🛡️ Protection")
-local antiHitboxEnabled = false
-local antiHitboxLoop = nil
-local originalHRPSize = Vector3.new(2, 2, 1)
-local myHRPProtected = false
-
-local function protectMyHitbox()
-    if not antiHitboxEnabled then return end
-    local char = LP.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    if not myHRPProtected then
-        originalHRPSize = hrp.Size
-        myHRPProtected = true
-    end
-    
-    if hrp.Size ~= originalHRPSize then
-        hrp.Size = originalHRPSize
-    end
-    
-    if hrp.Transparency > 1 then
-        hrp.Transparency = 1
-    end
-    
-    if not hrp.CanCollide then
-        hrp.CanCollide = false
-    end
-end
-
-local function startAntiHitbox()
-    if antiHitboxLoop then return end
-    antiHitboxLoop = RunService.Heartbeat:Connect(function()
-        protectMyHitbox()
-    end)
-end
-
-local function stopAntiHitbox()
-    if antiHitboxLoop then
-        antiHitboxLoop:Disconnect()
-        antiHitboxLoop = nil
-    end
-    myHRPProtected = false
-end
-
-TabPlayer:CreateToggle({
-    Name="🛡️ Anti-Hitbox Expander",
-    CurrentValue=false,
-    Flag="AntiHitbox",
-    Callback=function(state)
-        antiHitboxEnabled = state
-        if state then
-            local char = LP.Character
-            if char then
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    originalHRPSize = hrp.Size
-                end
-            end
-            startAntiHitbox()
-            Rayfield:Notify({
-                Title="Anti-Hitbox",
-                Content="🛡️ Protection aktif - Hitbox kamu aman dari cheater!",
-                Duration=4
-            })
-        else
-            stopAntiHitbox()
-            Rayfield:Notify({
-                Title="Anti-Hitbox",
-                Content="✗ Protection nonaktif",
-                Duration=2
-            })
-        end
-    end
-})
-
-LP.CharacterAdded:Connect(function(char)
-    myHRPProtected = false
-    if antiHitboxEnabled then
-        task.wait(0.5)
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            originalHRPSize = hrp.Size
-        end
-        startAntiHitbox()
-    end
-end)
-
 local function isKillerTeam()
     local tn = LP.Team and LP.Team.Name and LP.Team.Name:lower() or ""
     return tn:find("killer", 1, true) ~= nil
@@ -1800,4 +1711,4 @@ TabWorld:CreateButton({
 
 Rayfield:LoadConfiguration()
 Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat by patihrz",Duration=6})
-Rayfield:Notify({Title="Update v2.6",Content="• 🛡️ Anti-Hitbox Expander (NEW)\n• ⚡ Repair Speed +12% (3x fire)\n• 💚 Heal Speed +20%\n• 🚪 Gate Speed +15%\n• Distance ESP\n• Speed Boost 1.5x\n• Smart Auto-Repair",Duration=10})
+Rayfield:Notify({Title="Update v2.5 STABLE",Content="• ⚡ Repair Speed +12% (3x fire)\n• 💚 Heal Speed +20%\n• 🚪 Gate Speed +15%\n• Distance ESP\n• Speed Boost 1.5x\n• Smart Auto-Repair\n• 🎃 Pumpkin ESP & TP",Duration=10})
