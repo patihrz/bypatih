@@ -1,73 +1,22 @@
 --[[
     Violence District - Enhanced Script
     Made by: patihrz
-    Version: 2.5
+    Version: 2.8 (Fixed)
     
     Features:
-    - Anti-Detection System
     - Fast Heal & Fast Gate
     - ESP & Wallhacks
     - Speed Boost
+    - Killer FOV Circle
+    - Hitbox Expander
     - Auto Repair & More!
 ]]--
 
--- Anti-Detection System
-local function setupAntiDetection()
-    -- Spoof game.Players.LocalPlayer untuk menghindari deteksi
-    local mt = getrawmetatable(game)
-    local oldNamecall = mt.__namecall
-    local oldIndex = mt.__index
-    
-    setreadonly(mt, false)
-    
-    -- Anti-kick protection
-    local function antiKick(args)
-        if args[1] == "Kicked" or args[1] == "Banned" then
-            return
-        end
-    end
-    
-    -- Hook __namecall untuk intercept kick attempts
-    mt.__namecall = newcclosure(function(self, ...)
-        local args = {...}
-        local method = getnamecallmethod()
-        
-        -- Block kick/ban attempts
-        if method == "Kick" or method == "kick" then
-            warn("[Anti-Detection] Blocked kick attempt")
-            return
-        end
-        
-        -- Block FireServer yang mencurigakan
-        if method == "FireServer" or method == "InvokeServer" then
-            local name = tostring(self)
-            if name:lower():find("anticheat") or name:lower():find("ban") or name:lower():find("kick") then
-                warn("[Anti-Detection] Blocked suspicious remote:", name)
-                return
-            end
-        end
-        
-        return oldNamecall(self, ...)
-    end)
-    
-    -- Hook __index untuk hide script presence
-    mt.__index = newcclosure(function(self, key)
-        -- Hide script detection attempts
-        if key == "VD_Tag" or key == "Violence" then
-            return nil
-        end
-        return oldIndex(self, key)
-    end)
-    
-    setreadonly(mt, true)
-    
-    print("[Anti-Detection] Protection enabled ✓")
-end
-
--- Initialize anti-detection
-pcall(setupAntiDetection)
+print("[VD Script] Starting...")
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
+print("[VD Script] Rayfield loaded!")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -78,6 +27,8 @@ local StarterGui = game:GetService("StarterGui")
 local StarterPlayer = game:GetService("StarterPlayer")
 local VirtualUser = game:GetService("VirtualUser")
 local LP = Players.LocalPlayer
+
+print("[VD Script] Services loaded!")
 
 local function alive(i)
     if not i then return false end
@@ -2094,5 +2045,5 @@ if game:GetService("Players").LocalPlayer then
 end
 
 Rayfield:LoadConfiguration()
-Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat\n🛡️ Anti-Detection aktif\n👤 Made by patihrz",Duration=6})
-Rayfield:Notify({Title="Update v2.7 - Final",Content="• 💥 Hitbox Expander (Killer)\n• 🎯 Killer FOV Circle\n• 🚪 Fast Gate Opening (+15%)\n• 🏥 Fast Heal (1.3x)\n• 🛡️ Anti-Detection System\n• 🚫 Anti-Kick Protection\n• Distance ESP\n• Speed Boost 1.5x\n• ⚡ Repair Speed +15%\n• Smart Auto-Repair",Duration=12})
+Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat\n⚡ All features active!\n👤 Made by patihrz",Duration=6})
+Rayfield:Notify({Title="Update v2.8 - Fixed",Content="• 💥 Hitbox Expander (Killer)\n• 🎯 Killer FOV Circle\n• 🚪 Fast Gate Opening (+15%)\n• 🏥 Fast Heal (1.3x)\n• � Distance ESP\n• 🏃 Speed Boost 1.5x\n• ⚡ Repair Speed +15%\n• 🔧 Smart Auto-Repair\n• 🌙 Visual Enhancements",Duration=12})
