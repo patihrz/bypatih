@@ -1,59 +1,3 @@
--- Anti-Detection System
-local function setupAntiDetection()
-    -- Spoof game.Players.LocalPlayer untuk menghindari deteksi
-    local mt = getrawmetatable(game)
-    local oldNamecall = mt.__namecall
-    local oldIndex = mt.__index
-    
-    setreadonly(mt, false)
-    
-    -- Anti-kick protection
-    local function antiKick(args)
-        if args[1] == "Kicked" or args[1] == "Banned" then
-            return
-        end
-    end
-    
-    -- Hook __namecall untuk intercept kick attempts
-    mt.__namecall = newcclosure(function(self, ...)
-        local args = {...}
-        local method = getnamecallmethod()
-        
-        -- Block kick/ban attempts
-        if method == "Kick" or method == "kick" then
-            warn("[Anti-Detection] Blocked kick attempt")
-            return
-        end
-        
-        -- Block FireServer yang mencurigakan
-        if method == "FireServer" or method == "InvokeServer" then
-            local name = tostring(self)
-            if name:lower():find("anticheat") or name:lower():find("ban") or name:lower():find("kick") then
-                warn("[Anti-Detection] Blocked suspicious remote:", name)
-                return
-            end
-        end
-        
-        return oldNamecall(self, ...)
-    end)
-    
-    -- Hook __index untuk hide script presence
-    mt.__index = newcclosure(function(self, key)
-        -- Hide script detection attempts
-        if key == "VD_Tag" or key == "Violence" then
-            return nil
-        end
-        return oldIndex(self, key)
-    end)
-    
-    setreadonly(mt, true)
-    
-    print("[Anti-Detection] Protection enabled ✓")
-end
-
--- Initialize anti-detection
-pcall(setupAntiDetection)
-
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 local Players = game:GetService("Players")
@@ -1198,76 +1142,6 @@ end
 TabPlayer:CreateButton({Name="Teleport to Killer (Nearest)",Callback=function() teleportToNearest("Killer") end})
 TabPlayer:CreateButton({Name="Teleport to Teammate (Nearest)",Callback=function() teleportToNearest("Survivor") end})
 
-TabPlayer:CreateSection("Healing")
-local fastHealEnabled = false
-local fastHealMultiplier = 1.3 -- Healing 1.3x lebih cepat (subtle, tidak terlalu cepat)
-local healConnection = nil
-
-local function setupFastHeal()
-    if healConnection then
-        healConnection:Disconnect()
-        healConnection = nil
-    end
-    
-    if not fastHealEnabled then return end
-    
-    -- Hook healing animation/event
-    healConnection = RunService.Heartbeat:Connect(function()
-        if not fastHealEnabled then return end
-        
-        local char = LP.Character
-        if not char then return end
-        
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if not humanoid then return end
-        
-        -- Speed up healing animations
-        local animator = humanoid:FindFirstChildOfClass("Animator")
-        if animator then
-            for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                local animName = (track.Name or ""):lower()
-                -- Deteksi animasi healing
-                if animName:find("heal") or animName:find("medkit") or animName:find("bandage") then
-                    pcall(function()
-                        track:AdjustSpeed(fastHealMultiplier)
-                    end)
-                end
-            end
-        end
-    end)
-end
-
-TabPlayer:CreateToggle({
-    Name = "Fast Heal (1.3x Speed)",
-    CurrentValue = false,
-    Flag = "FastHeal",
-    Callback = function(state)
-        fastHealEnabled = state
-        setupFastHeal()
-        Rayfield:Notify({
-            Title = "Fast Heal",
-            Content = state and "✓ Healing 1.3x lebih cepat (subtle)" or "✗ Fast Heal nonaktif",
-            Duration = 3
-        })
-    end
-})
-
-TabPlayer:CreateSlider({
-    Name = "Heal Speed Multiplier",
-    Range = {1, 2},
-    Increment = 0.1,
-    CurrentValue = 1.3,
-    Flag = "HealMultiplier",
-    Callback = function(value)
-        fastHealMultiplier = value
-        Rayfield:Notify({
-            Title = "Heal Speed",
-            Content = "Heal speed set to " .. value .. "x",
-            Duration = 2
-        })
-    end
-})
-
 TabPlayer:CreateSection("AFK")
 local antiAFKConn=nil
 local function setAntiAFK(state)
@@ -1691,37 +1565,6 @@ do
         if d:IsA("RemoteEvent") and d.Name=="RepairAnim"  then RepairAnim=d end
     end)
 end
-
--- Anti-Detection: Hide script presence from game logs
-pcall(function()
-    local oldWarn = warn
-    local oldPrint = print
-    
-    warn = function(...)
-        local args = {...}
-        local str = table.concat(args, " ")
-        if not str:find("Anti%-Detection") then
-            oldWarn(...)
-        end
-    end
-    
-    print = function(...)
-        local args = {...}
-        local str = table.concat(args, " ")
-        if not str:find("Anti%-Detection") and not str:find("VD_") then
-            oldPrint(...)
-        end
-    end
-end)
-
--- Anti-AFK
-if game:GetService("Players").LocalPlayer then
-    game:GetService("Players").LocalPlayer.Idled:Connect(function()
-        VirtualUser:CaptureController()
-        VirtualUser:ClickButton2(Vector2.new())
-    end)
-end
-
 Rayfield:LoadConfiguration()
-Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat\n🛡️ Anti-Detection aktif",Duration=6})
-Rayfield:Notify({Title="Update v2.4",Content="• 🏥 Fast Heal (1.3x Subtle)\n• 🛡️ Anti-Detection System\n• 🚫 Anti-Kick Protection\n• 👁️ Hidden from Logs\n• Distance ESP\n• Speed Boost 1.5x\n• ⚡ Repair Speed +10%\n• Smart Auto-Repair\n• 📊 Repair Statistics\n• 🎃 Pumpkin ESP & TP",Duration=10})
+Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat",Duration=6})
+Rayfield:Notify({Title="Update v2.2",Content="• Distance ESP\n• Speed Boost 1.5x\n• ⚡ Repair Speed +10%\n• Smart Auto-Repair\n• 📊 Repair Statistics\n• 🎃 Pumpkin ESP & TP\n• Better Notifications",Duration=8})
