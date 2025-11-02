@@ -1,22 +1,60 @@
---[[
-    Violence District - Enhanced Script
-    Made by: patihrz
-    Version: 2.9 (Stable)
+-- Anti-Detection System
+local function setupAntiDetection()
+    -- Spoof game.Players.LocalPlayer untuk menghindari deteksi
+    local mt = getrawmetatable(game)
+    local oldNamecall = mt.__namecall
+    local oldIndex = mt.__index
     
-    Features:
-    - Fast Heal & Fast Gate
-    - ESP & Wallhacks
-    - Speed Boost
-    - Killer FOV Circle
-    - Hitbox Expander
-    - Auto Repair & More!
-]]--
+    setreadonly(mt, false)
+    
+    -- Anti-kick protection
+    local function antiKick(args)
+        if args[1] == "Kicked" or args[1] == "Banned" then
+            return
+        end
+    end
+    
+    -- Hook __namecall untuk intercept kick attempts
+    mt.__namecall = newcclosure(function(self, ...)
+        local args = {...}
+        local method = getnamecallmethod()
+        
+        -- Block kick/ban attempts
+        if method == "Kick" or method == "kick" then
+            warn("[Anti-Detection] Blocked kick attempt")
+            return
+        end
+        
+        -- Block FireServer yang mencurigakan
+        if method == "FireServer" or method == "InvokeServer" then
+            local name = tostring(self)
+            if name:lower():find("anticheat") or name:lower():find("ban") or name:lower():find("kick") then
+                warn("[Anti-Detection] Blocked suspicious remote:", name)
+                return
+            end
+        end
+        
+        return oldNamecall(self, ...)
+    end)
+    
+    -- Hook __index untuk hide script presence
+    mt.__index = newcclosure(function(self, key)
+        -- Hide script detection attempts
+        if key == "VD_Tag" or key == "Violence" then
+            return nil
+        end
+        return oldIndex(self, key)
+    end)
+    
+    setreadonly(mt, true)
+    
+    print("[Anti-Detection] Protection enabled ✓")
+end
 
-print("[VD Script] Starting...")
+-- Initialize anti-detection
+pcall(setupAntiDetection)
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
-
-print("[VD Script] Rayfield loaded!")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -27,8 +65,6 @@ local StarterGui = game:GetService("StarterGui")
 local StarterPlayer = game:GetService("StarterPlayer")
 local VirtualUser = game:GetService("VirtualUser")
 local LP = Players.LocalPlayer
-
-print("[VD Script] Services loaded!")
 
 local function alive(i)
     if not i then return false end
@@ -131,7 +167,7 @@ local function clearHighlight(model)
     end
 end
 
-local Window   = Rayfield:CreateWindow({Name="Violence District",LoadingTitle="Violence District",LoadingSubtitle="by patihrz",ConfigurationSaving={Enabled=true,FolderName="VD_Suite",FileName="vd_config"},KeySystem=false})
+local Window   = Rayfield:CreateWindow({Name="Violence District",LoadingTitle="Violence District",LoadingSubtitle="by jlcfg",ConfigurationSaving={Enabled=true,FolderName="VD_Suite",FileName="vd_config"},KeySystem=false})
 local TabPlayer= Window:CreateTab("Player")
 local TabESP   = Window:CreateTab("ESP")
 local TabWorld = Window:CreateTab("World")
@@ -261,141 +297,9 @@ TabESP:CreateToggle({Name="Nametags + Distance",CurrentValue=false,Flag="Nametag
 TabESP:CreateColorPicker({Name="Survivor Color",Color=survivorColor,Flag="SurvivorCol",Callback=function(c) survivorColor=c for _,pl in ipairs(Players:GetPlayers()) do if pl~=LP then applyPlayerESP(pl) end end end})
 TabESP:CreateColorPicker({Name="Killer Color",Color=killerBaseColor,Flag="KillerCol",Callback=function(c) killerBaseColor=c killerColors.Killer=c for _,pl in ipairs(Players:GetPlayers()) do if pl~=LP then applyPlayerESP(pl) end end end})
 
--- Killer FOV Circle
-TabESP:CreateSection("Killer FOV")
-local fovCircleEnabled = false
-local fovRadius = 40 -- Radius FOV killer dalam studs
-local fovCircles = {}
-local fovConnection = nil
-
-local function createFOVCircle(killer)
-    if not killer or not killer.Character then return nil end
-    local hrp = killer.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return nil end
-    
-    -- Buat attachment untuk circle
-    local attachment = Instance.new("Attachment")
-    attachment.Name = "VD_FOV_Attach"
-    attachment.Parent = hrp
-    
-    -- Buat circle menggunakan beam yang melingkar
-    local circle = Instance.new("Part")
-    circle.Name = "VD_FOV_Circle"
-    circle.Anchored = false
-    circle.CanCollide = false
-    circle.Transparency = 0.8
-    circle.Material = Enum.Material.Neon
-    circle.Color = Color3.fromRGB(255, 0, 0)
-    circle.Size = Vector3.new(fovRadius * 2, 0.2, fovRadius * 2)
-    circle.Shape = Enum.PartType.Cylinder
-    circle.CFrame = hrp.CFrame * CFrame.Angles(0, 0, math.rad(90))
-    circle.Parent = hrp
-    
-    -- Weld ke HRP
-    local weld = Instance.new("WeldConstraint")
-    weld.Part0 = hrp
-    weld.Part1 = circle
-    weld.Parent = circle
-    
-    -- Rotate circle to be horizontal
-    circle.CFrame = hrp.CFrame * CFrame.Angles(0, 0, math.rad(90))
-    
-    return circle
-end
-
-local function updateFOVCircles()
-    if not fovCircleEnabled then
-        -- Clear all circles
-        for killer, circle in pairs(fovCircles) do
-            if circle and circle.Parent then
-                pcall(function() circle:Destroy() end)
-            end
-        end
-        fovCircles = {}
-        return
-    end
-    
-    -- Update circles for killers
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LP and getRole(player) == "Killer" then
-            if not fovCircles[player] or not fovCircles[player].Parent then
-                fovCircles[player] = createFOVCircle(player)
-            end
-            
-            -- Update size if changed
-            if fovCircles[player] and fovCircles[player].Parent then
-                pcall(function()
-                    fovCircles[player].Size = Vector3.new(fovRadius * 2, 0.2, fovRadius * 2)
-                end)
-            end
-        else
-            -- Remove circle if not killer anymore
-            if fovCircles[player] then
-                pcall(function() fovCircles[player]:Destroy() end)
-                fovCircles[player] = nil
-            end
-        end
-    end
-end
-
-TabESP:CreateToggle({
-    Name = "Killer FOV Circle",
-    CurrentValue = false,
-    Flag = "KillerFOV",
-    Callback = function(state)
-        fovCircleEnabled = state
-        
-        if state then
-            -- Start updating circles
-            if not fovConnection then
-                fovConnection = RunService.Heartbeat:Connect(updateFOVCircles)
-            end
-            Rayfield:Notify({
-                Title = "Killer FOV",
-                Content = "✓ FOV Circle aktif",
-                Duration = 3
-            })
-        else
-            -- Stop and clear
-            if fovConnection then
-                fovConnection:Disconnect()
-                fovConnection = nil
-            end
-            updateFOVCircles() -- Clear circles
-            Rayfield:Notify({
-                Title = "Killer FOV",
-                Content = "✗ FOV Circle nonaktif",
-                Duration = 2
-            })
-        end
-    end
-})
-
-TabESP:CreateSlider({
-    Name = "FOV Radius (Studs)",
-    Range = {20, 80},
-    Increment = 5,
-    CurrentValue = 40,
-    Flag = "FOVRadius",
-    Callback = function(value)
-        fovRadius = value
-        Rayfield:Notify({
-            Title = "FOV Radius",
-            Content = "Radius set to " .. value .. " studs",
-            Duration = 2
-        })
-    end
-})
-
 for _,p in ipairs(Players:GetPlayers()) do if p~=LP then watchPlayer(p) end end
 Players.PlayerAdded:Connect(watchPlayer)
-Players.PlayerRemoving:Connect(function(p)
-    unwatchPlayer(p)
-    if fovCircles[p] then
-        pcall(function() fovCircles[p]:Destroy() end)
-        fovCircles[p] = nil
-    end
-end)
+Players.PlayerRemoving:Connect(unwatchPlayer)
 
 local worldColors = {
     Generator = Color3.fromRGB(0,170,255),
@@ -1364,60 +1268,6 @@ TabPlayer:CreateSlider({
     end
 })
 
-TabPlayer:CreateSection("Gate Opening")
-local fastGateEnabled = false
-local fastGateMultiplier = 1.15 -- 15% lebih cepat
-local gateConnection = nil
-
-local function setupFastGate()
-    if gateConnection then
-        gateConnection:Disconnect()
-        gateConnection = nil
-    end
-    
-    if not fastGateEnabled then return end
-    
-    -- Hook gate opening animation/event
-    gateConnection = RunService.Heartbeat:Connect(function()
-        if not fastGateEnabled then return end
-        
-        local char = LP.Character
-        if not char then return end
-        
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if not humanoid then return end
-        
-        -- Speed up gate opening animations
-        local animator = humanoid:FindFirstChildOfClass("Animator")
-        if animator then
-            for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                local animName = (track.Name or ""):lower()
-                -- Deteksi animasi gate/lever/exit
-                if animName:find("gate") or animName:find("lever") or animName:find("exit") or animName:find("open") then
-                    pcall(function()
-                        track:AdjustSpeed(fastGateMultiplier)
-                    end)
-                end
-            end
-        end
-    end)
-end
-
-TabPlayer:CreateToggle({
-    Name = "Fast Gate Opening (+15%)",
-    CurrentValue = false,
-    Flag = "FastGate",
-    Callback = function(state)
-        fastGateEnabled = state
-        setupFastGate()
-        Rayfield:Notify({
-            Title = "Fast Gate",
-            Content = state and "✓ Gate opening 15% lebih cepat!" or "✗ Fast Gate nonaktif",
-            Duration = 3
-        })
-    end
-})
-
 TabPlayer:CreateSection("AFK")
 local antiAFKConn=nil
 local function setAntiAFK(state)
@@ -1463,9 +1313,18 @@ local hookSkillInstalled=false
 local rsAddConn, pgAddConn, pgDescConn, sgAddConn, remAddConn, wsAddConn
 local charAddConns={}
 local function installSkillBlock()
-    -- DISABLED: hookmetamethod incompatible with Delta Executor
-    -- Skill check blocking removed for compatibility
-    hookSkillInstalled=false
+    if hookSkillInstalled then return end
+    if typeof(hookmetamethod)=="function" and typeof(getnamecallmethod)=="function" then
+        local old
+        old = hookmetamethod(game,"__namecall",function(self,...)
+            local m=getnamecallmethod()
+            if noSkillEnabled and typeof(self)=="Instance" and isExactSkill(self) and (m=="FireServer" or m=="InvokeServer") then
+                return nil
+            end
+            return old(self,...)
+        end)
+        hookSkillInstalled=true
+    end
 end
 local function startNoSkill()
     installSkillBlock()
@@ -1520,181 +1379,8 @@ local function evalNoSkill()
     end
 end
 LP:GetPropertyChangedSignal("Team"):Connect(evalNoSkill)
--- DISABLED: No Skillchecks feature (incompatible with Delta Executor)
--- TabMisc:CreateSection("Skillcheck")
--- TabMisc:CreateToggle({Name="No Skillchecks",CurrentValue=false,Flag="NoSkill",Callback=function(s) noSkillToggleUser=s evalNoSkill() end})
-
--- Hitbox Expander (untuk Killer)
-TabMisc:CreateSection("Hitbox (Killer Only)")
-local hitboxEnabled = false
-local hitboxSize = 10
-local hitboxConnections = {}
-local originalSizes = {}
-
-local function expandHitbox(player)
-    if not player or player == LP then return end
-    if getRole(player) == "Killer" then return end -- Jangan expand hitbox killer
-    
-    local char = player.Character
-    if not char then return end
-    
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    -- Save original size
-    if not originalSizes[player] then
-        originalSizes[player] = hrp.Size
-    end
-    
-    -- Expand hitbox
-    pcall(function()
-        hrp.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
-        hrp.Transparency = 0.8 -- Biar keliatan
-        hrp.CanCollide = false
-    end)
-end
-
-local function restoreHitbox(player)
-    if not player or not player.Character then return end
-    
-    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    -- Restore original size
-    if originalSizes[player] then
-        pcall(function()
-            hrp.Size = originalSizes[player]
-            hrp.Transparency = 1
-        end)
-        originalSizes[player] = nil
-    end
-end
-
-local function updateAllHitboxes()
-    if not hitboxEnabled then
-        -- Restore all
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LP then
-                restoreHitbox(player)
-            end
-        end
-        return
-    end
-    
-    -- Only expand if you're killer
-    if getRole(LP) ~= "Killer" then
-        Rayfield:Notify({
-            Title = "Hitbox Expander",
-            Content = "⚠️ Kamu bukan Killer!",
-            Duration = 3
-        })
-        return
-    end
-    
-    -- Expand survivor hitboxes
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LP and getRole(player) == "Survivor" then
-            expandHitbox(player)
-        end
-    end
-end
-
-local function setupHitboxWatcher()
-    -- Clear old connections
-    for _, conn in ipairs(hitboxConnections) do
-        pcall(function() conn:Disconnect() end)
-    end
-    hitboxConnections = {}
-    
-    if not hitboxEnabled then return end
-    
-    -- Watch for character spawns
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LP then
-            local conn = player.CharacterAdded:Connect(function()
-                task.wait(0.5)
-                if hitboxEnabled and getRole(LP) == "Killer" then
-                    expandHitbox(player)
-                end
-            end)
-            table.insert(hitboxConnections, conn)
-        end
-    end
-    
-    -- Update continuously
-    local heartbeat = RunService.Heartbeat:Connect(function()
-        if hitboxEnabled and getRole(LP) == "Killer" then
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LP and getRole(player) == "Survivor" then
-                    expandHitbox(player)
-                end
-            end
-        end
-    end)
-    table.insert(hitboxConnections, heartbeat)
-end
-
-TabMisc:CreateToggle({
-    Name = "Expand Survivor Hitbox",
-    CurrentValue = false,
-    Flag = "ExpandHitbox",
-    Callback = function(state)
-        hitboxEnabled = state
-        
-        if state then
-            if getRole(LP) ~= "Killer" then
-                Rayfield:Notify({
-                    Title = "Hitbox Expander",
-                    Content = "⚠️ Hanya untuk Killer!\nKamu bukan Killer saat ini.",
-                    Duration = 4
-                })
-                hitboxEnabled = false
-                return
-            end
-            
-            setupHitboxWatcher()
-            updateAllHitboxes()
-            Rayfield:Notify({
-                Title = "Hitbox Expander",
-                Content = "✓ Survivor hitbox expanded!",
-                Duration = 3
-            })
-        else
-            setupHitboxWatcher()
-            updateAllHitboxes()
-            Rayfield:Notify({
-                Title = "Hitbox Expander",
-                Content = "✗ Hitbox restored",
-                Duration = 2
-            })
-        end
-    end
-})
-
-TabMisc:CreateSlider({
-    Name = "Hitbox Size",
-    Range = {5, 25},
-    Increment = 1,
-    CurrentValue = 10,
-    Flag = "HitboxSize",
-    Callback = function(value)
-        hitboxSize = value
-        if hitboxEnabled then
-            updateAllHitboxes()
-        end
-        Rayfield:Notify({
-            Title = "Hitbox Size",
-            Content = "Size set to " .. value .. " studs",
-            Duration = 2
-        })
-    end
-})
-
--- Cleanup on player leave
-Players.PlayerRemoving:Connect(function(player)
-    restoreHitbox(player)
-    originalSizes[player] = nil
-end)
+TabMisc:CreateSection("Skillcheck")
+TabMisc:CreateToggle({Name="No Skillchecks",CurrentValue=false,Flag="NoSkill",Callback=function(s) noSkillToggleUser=s evalNoSkill() end})
 
 local function findExitLevers()
     local list={}
@@ -1733,7 +1419,7 @@ do
     local repairBoostEnabled = false
     local SCAN_INTERVAL = 1.0
     local REPAIR_TICK   = 0.25
-    local REPAIR_TICK_BOOSTED = 0.2125 -- 15% lebih cepat (0.25 * 0.85 = 0.2125)
+    local REPAIR_TICK_BOOSTED = 0.225
     local AVOID_RADIUS  = 80
     local MOVE_DIST     = 35
     local UP_OFFSET     = Vector3.new(0, 3, 0)
@@ -1946,7 +1632,7 @@ do
     })
 
     TabWorld:CreateToggle({
-        Name="⚡ Repair Speed Boost (+15%)",
+        Name="⚡ Repair Speed Boost (+10%)",
         CurrentValue=false,
         Flag="RepairBoost",
         Callback=function(state)
@@ -1954,7 +1640,7 @@ do
             if state then
                 Rayfield:Notify({
                     Title="Repair Boost",
-                    Content="⚡ Repair 15% lebih cepat!",
+                    Content="⚡ Repair 10% lebih cepat!",
                     Duration=3
                 })
             else
@@ -2037,5 +1723,5 @@ if game:GetService("Players").LocalPlayer then
 end
 
 Rayfield:LoadConfiguration()
-Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat\n⚡ All features active!\n👤 Made by patihrz",Duration=6})
-Rayfield:Notify({Title="Update v2.8 - Fixed",Content="• 💥 Hitbox Expander (Killer)\n• 🎯 Killer FOV Circle\n• 🚪 Fast Gate Opening (+15%)\n• 🏥 Fast Heal (1.3x)\n• � Distance ESP\n• 🏃 Speed Boost 1.5x\n• ⚡ Repair Speed +15%\n• 🔧 Smart Auto-Repair\n• 🌙 Visual Enhancements",Duration=12})
+Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat\n🛡️ Anti-Detection aktif",Duration=6})
+Rayfield:Notify({Title="Update v2.4",Content="• 🏥 Fast Heal (1.3x Subtle)\n• 🛡️ Anti-Detection System\n• 🚫 Anti-Kick Protection\n• 👁️ Hidden from Logs\n• Distance ESP\n• Speed Boost 1.5x\n• ⚡ Repair Speed +10%\n• Smart Auto-Repair\n• 📊 Repair Statistics\n• 🎃 Pumpkin ESP & TP",Duration=10})
