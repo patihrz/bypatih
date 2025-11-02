@@ -1156,6 +1156,206 @@ local function setAntiAFK(state)
 end
 TabPlayer:CreateToggle({Name="Anti AFK",CurrentValue=false,Flag="AntiAFK",Callback=function(s) setAntiAFK(s) end})
 
+TabPlayer:CreateSection("🎯 Killer Assistance")
+local silentAimEnabled = false
+local hitboxSize = 10
+local hitboxTransparency = 0.7
+local expandedHitboxes = {}
+
+local function getClosestSurvivor()
+    if not LP.Character or not LP.Character:FindFirstChild("HumanoidRootPart") then return nil end
+    local myPos = LP.Character.HumanoidRootPart.Position
+    local closest, closestDist = nil, math.huge
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LP and getRole(player) == "Survivor" then
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
+                local hum = char.Humanoid
+                if hum.Health > 0 then
+                    local dist = (char.HumanoidRootPart.Position - myPos).Magnitude
+                    if dist < closestDist then
+                        closestDist = dist
+                        closest = char
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function applySilentAim()
+    if not silentAimEnabled then return end
+    local target = getClosestSurvivor()
+    if not target or not target:FindFirstChild("HumanoidRootPart") then return end
+    
+    local myChar = LP.Character
+    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return end
+    
+    local targetPos = target.HumanoidRootPart.Position
+    local myPos = myChar.HumanoidRootPart.Position
+    local direction = (targetPos - myPos).Unit
+    
+    local camera = Workspace.CurrentCamera
+    if camera then
+        camera.CFrame = CFrame.new(camera.CFrame.Position, targetPos)
+    end
+end
+
+local silentAimLoop
+TabPlayer:CreateToggle({
+    Name="🎯 Silent Aim",
+    CurrentValue=false,
+    Flag="SilentAim",
+    Callback=function(state)
+        silentAimEnabled = state
+        if state then
+            if not isKillerTeam() then
+                Rayfield:Notify({Title="Silent Aim",Content="⚠️ Fitur ini hanya untuk Killer!",Duration=4})
+                silentAimEnabled = false
+                return
+            end
+            silentAimLoop = RunService.RenderStepped:Connect(applySilentAim)
+            Rayfield:Notify({Title="Silent Aim",Content="✓ Silent Aim aktif - Auto aim ke survivor terdekat",Duration=4})
+        else
+            if silentAimLoop then
+                silentAimLoop:Disconnect()
+                silentAimLoop = nil
+            end
+            Rayfield:Notify({Title="Silent Aim",Content="✗ Silent Aim nonaktif",Duration=2})
+        end
+    end
+})
+
+local function expandHitbox(character, size)
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = character.HumanoidRootPart
+    
+    if not expandedHitboxes[character] then
+        expandedHitboxes[character] = {
+            originalSize = hrp.Size,
+            originalTransparency = hrp.Transparency,
+            originalCanCollide = hrp.CanCollide
+        }
+    end
+    
+    hrp.Size = Vector3.new(size, size, size)
+    hrp.Transparency = hitboxTransparency
+    hrp.CanCollide = false
+end
+
+local function resetHitbox(character)
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = character.HumanoidRootPart
+    local stored = expandedHitboxes[character]
+    
+    if stored then
+        hrp.Size = stored.originalSize
+        hrp.Transparency = stored.originalTransparency
+        hrp.CanCollide = stored.originalCanCollide
+        expandedHitboxes[character] = nil
+    end
+end
+
+local hitboxEnabled = false
+local hitboxLoop
+local function applyHitboxExpander()
+    if not hitboxEnabled then return end
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LP and getRole(player) == "Survivor" then
+            local char = player.Character
+            if char and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
+                expandHitbox(char, hitboxSize)
+            end
+        end
+    end
+end
+
+TabPlayer:CreateToggle({
+    Name="📦 Hitbox Expander",
+    CurrentValue=false,
+    Flag="HitboxExpander",
+    Callback=function(state)
+        hitboxEnabled = state
+        if state then
+            if not isKillerTeam() then
+                Rayfield:Notify({Title="Hitbox Expander",Content="⚠️ Fitur ini hanya untuk Killer!",Duration=4})
+                hitboxEnabled = false
+                return
+            end
+            hitboxLoop = RunService.Heartbeat:Connect(applyHitboxExpander)
+            Rayfield:Notify({Title="Hitbox Expander",Content="✓ Hitbox Expander aktif - Lebih mudah hit survivor",Duration=4})
+        else
+            if hitboxLoop then
+                hitboxLoop:Disconnect()
+                hitboxLoop = nil
+            end
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player.Character then
+                    resetHitbox(player.Character)
+                end
+            end
+            expandedHitboxes = {}
+            Rayfield:Notify({Title="Hitbox Expander",Content="✗ Hitbox Expander nonaktif",Duration=2})
+        end
+    end
+})
+
+TabPlayer:CreateSlider({
+    Name="Hitbox Size",
+    Range={5, 30},
+    Increment=1,
+    CurrentValue=10,
+    Flag="HitboxSize",
+    Callback=function(value)
+        hitboxSize = value
+        if hitboxEnabled then
+            Rayfield:Notify({Title="Hitbox Size",Content="Ukuran diubah ke "..value,Duration=2})
+        end
+    end
+})
+
+TabPlayer:CreateSlider({
+    Name="Hitbox Transparency",
+    Range={0, 1},
+    Increment=0.1,
+    CurrentValue=0.7,
+    Flag="HitboxTransparency",
+    Callback=function(value)
+        hitboxTransparency = value
+    end
+})
+
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function(char)
+        if hitboxEnabled and getRole(player) == "Survivor" then
+            task.wait(0.5)
+            expandHitbox(char, hitboxSize)
+        end
+    end)
+end)
+
+LP:GetPropertyChangedSignal("Team"):Connect(function()
+    if not isKillerTeam() then
+        if silentAimEnabled then
+            silentAimEnabled = false
+            if silentAimLoop then silentAimLoop:Disconnect() silentAimLoop = nil end
+            Rayfield:Notify({Title="Silent Aim",Content="✗ Dinonaktifkan (bukan Killer)",Duration=3})
+        end
+        if hitboxEnabled then
+            hitboxEnabled = false
+            if hitboxLoop then hitboxLoop:Disconnect() hitboxLoop = nil end
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player.Character then resetHitbox(player.Character) end
+            end
+            expandedHitboxes = {}
+            Rayfield:Notify({Title="Hitbox Expander",Content="✗ Dinonaktifkan (bukan Killer)",Duration=3})
+        end
+    end
+end)
+
 local function isKillerTeam() local tn=LP.Team and LP.Team.Name and LP.Team.Name:lower() or "" return tn:find("killer",1,true)~=nil end
 local guiWhitelist = {Rayfield=true,DevConsoleMaster=true,RobloxGui=true,PlayerList=true,Chat=true,BubbleChat=true,Backpack=true}
 local skillExactNames = {SkillCheckPromptGui=true,["SkillCheckPromptGui-con"]=true,SkillCheckEvent=true,SkillCheckFailEvent=true,SkillCheckResultEvent=true}
@@ -1566,5 +1766,5 @@ do
     end)
 end
 Rayfield:LoadConfiguration()
-Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat",Duration=6})
-Rayfield:Notify({Title="Update v2.2",Content="• Distance ESP\n• Speed Boost 1.5x\n• ⚡ Repair Speed +10%\n• Smart Auto-Repair\n• 📊 Repair Statistics\n• 🎃 Pumpkin ESP & TP\n• Better Notifications",Duration=8})
+Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat by patihrz",Duration=6})
+Rayfield:Notify({Title="Update v2.3",Content="• 🎯 Silent Aim (Killer)\n• 📦 Hitbox Expander (Killer)\n• Distance ESP\n• Speed Boost 1.5x\n• ⚡ Repair Speed +10%\n• Smart Auto-Repair\n• 📊 Repair Statistics\n• 🎃 Pumpkin ESP & TP",Duration=10})
