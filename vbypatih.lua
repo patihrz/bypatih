@@ -1156,12 +1156,7 @@ local function setAntiAFK(state)
 end
 TabPlayer:CreateToggle({Name="Anti AFK",CurrentValue=false,Flag="AntiAFK",Callback=function(s) setAntiAFK(s) end})
 
-local function isKillerTeam()
-    local tn = LP.Team and LP.Team.Name and LP.Team.Name:lower() or ""
-    return tn:find("killer", 1, true) ~= nil
-end
-
-TabPlayer:CreateSection("🎯 Killer Assistance")
+TabPlayer:CreateSection("🎯 Combat Assistance")
 local silentAimEnabled = false
 local hitboxSize = 10
 local hitboxTransparency = 0.7
@@ -1216,11 +1211,6 @@ TabPlayer:CreateToggle({
     Callback=function(state)
         silentAimEnabled = state
         if state then
-            if not isKillerTeam() then
-                Rayfield:Notify({Title="Silent Aim",Content="⚠️ Fitur ini hanya untuk Killer!",Duration=4})
-                silentAimEnabled = false
-                return
-            end
             silentAimLoop = RunService.RenderStepped:Connect(applySilentAim)
             Rayfield:Notify({Title="Silent Aim",Content="✓ Silent Aim aktif - Auto aim ke survivor terdekat",Duration=4})
         else
@@ -1285,11 +1275,6 @@ TabPlayer:CreateToggle({
     Callback=function(state)
         hitboxEnabled = state
         if state then
-            if not isKillerTeam() then
-                Rayfield:Notify({Title="Hitbox Expander",Content="⚠️ Fitur ini hanya untuk Killer!",Duration=4})
-                hitboxEnabled = false
-                return
-            end
             hitboxLoop = RunService.Heartbeat:Connect(applyHitboxExpander)
             Rayfield:Notify({Title="Hitbox Expander",Content="✓ Hitbox Expander aktif - Lebih mudah hit survivor",Duration=4})
         else
@@ -1340,25 +1325,6 @@ Players.PlayerAdded:Connect(function(player)
             expandHitbox(char, hitboxSize)
         end
     end)
-end)
-
-LP:GetPropertyChangedSignal("Team"):Connect(function()
-    if not isKillerTeam() then
-        if silentAimEnabled then
-            silentAimEnabled = false
-            if silentAimLoop then silentAimLoop:Disconnect() silentAimLoop = nil end
-            Rayfield:Notify({Title="Silent Aim",Content="✗ Dinonaktifkan (bukan Killer)",Duration=3})
-        end
-        if hitboxEnabled then
-            hitboxEnabled = false
-            if hitboxLoop then hitboxLoop:Disconnect() hitboxLoop = nil end
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player.Character then resetHitbox(player.Character) end
-            end
-            expandedHitboxes = {}
-            Rayfield:Notify({Title="Hitbox Expander",Content="✗ Dinonaktifkan (bukan Killer)",Duration=3})
-        end
-    end
 end)
 
 local guiWhitelist = {Rayfield=true,DevConsoleMaster=true,RobloxGui=true,PlayerList=true,Chat=true,BubbleChat=true,Backpack=true}
@@ -1448,6 +1414,10 @@ local function stopNoSkill()
     if rsAddConn then rsAddConn:Disconnect() rsAddConn=nil end
     if wsAddConn then wsAddConn:Disconnect() wsAddConn=nil end
     for pl,cn in pairs(charAddConns) do if cn then cn:Disconnect() end charAddConns[pl]=nil end
+end
+local function isKillerTeam()
+    local tn = LP.Team and LP.Team.Name and LP.Team.Name:lower() or ""
+    return tn:find("killer", 1, true) ~= nil
 end
 local function evalNoSkill()
     if noSkillToggleUser and not isKillerTeam() then
