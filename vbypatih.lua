@@ -1156,6 +1156,106 @@ local function setAntiAFK(state)
 end
 TabPlayer:CreateToggle({Name="Anti AFK",CurrentValue=false,Flag="AntiAFK",Callback=function(s) setAntiAFK(s) end})
 
+TabPlayer:CreateSection("⚡ Abilities")
+local fastCooldownEnabled = false
+local cooldownLoop = nil
+local cooldownMultiplier = 0.5
+
+local function reduceCooldowns()
+    if not fastCooldownEnabled then return end
+    local char = LP.Character
+    if not char then return end
+    
+    pcall(function()
+        for _, obj in ipairs(char:GetDescendants()) do
+            if obj:IsA("NumberValue") or obj:IsA("IntValue") then
+                local name = obj.Name:lower()
+                if name:find("cooldown") or name:find("exhausted") or name:find("exhaustion") then
+                    if obj.Value > 0 then
+                        obj.Value = obj.Value * cooldownMultiplier
+                    end
+                end
+            end
+            
+            if obj:IsA("BoolValue") then
+                local name = obj.Name:lower()
+                if name:find("exhausted") or name:find("oncooldown") then
+                    if obj.Value == true then
+                        task.delay(1, function()
+                            if obj and obj.Parent then
+                                obj.Value = false
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+        
+        local humanoid = char:FindFirstChild("Humanoid")
+        if humanoid then
+            for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+                local animName = track.Name:lower()
+                if animName:find("exhausted") or animName:find("tired") then
+                    track:Stop()
+                end
+            end
+        end
+    end)
+end
+
+TabPlayer:CreateToggle({
+    Name="⚡ Fast Ability Cooldown",
+    CurrentValue=false,
+    Flag="FastCooldown",
+    Callback=function(state)
+        fastCooldownEnabled = state
+        if state then
+            if cooldownLoop then cooldownLoop:Disconnect() end
+            cooldownLoop = RunService.Heartbeat:Connect(reduceCooldowns)
+            Rayfield:Notify({
+                Title="Fast Cooldown",
+                Content="⚡ Cooldown skill 50% lebih cepat!\n(Sprint, Dead Hard, dll)",
+                Duration=4
+            })
+        else
+            if cooldownLoop then
+                cooldownLoop:Disconnect()
+                cooldownLoop = nil
+            end
+            Rayfield:Notify({
+                Title="Fast Cooldown",
+                Content="✗ Normal cooldown",
+                Duration=2
+            })
+        end
+    end
+})
+
+TabPlayer:CreateSlider({
+    Name="Cooldown Speed",
+    Range={0.1, 1},
+    Increment=0.1,
+    CurrentValue=0.5,
+    Flag="CooldownMultiplier",
+    Callback=function(value)
+        cooldownMultiplier = value
+        local percent = math.floor((1 - value) * 100)
+        Rayfield:Notify({
+            Title="Cooldown Speed",
+            Content="Cooldown "..percent.."% lebih cepat",
+            Duration=2
+        })
+    end
+})
+
+LP.CharacterAdded:Connect(function()
+    if fastCooldownEnabled then
+        task.wait(1)
+        if cooldownLoop then cooldownLoop:Disconnect() end
+        cooldownLoop = RunService.Heartbeat:Connect(reduceCooldowns)
+    end
+end)
+
 local function isKillerTeam()
     local tn = LP.Team and LP.Team.Name and LP.Team.Name:lower() or ""
     return tn:find("killer", 1, true) ~= nil
@@ -1711,4 +1811,4 @@ TabWorld:CreateButton({
 
 Rayfield:LoadConfiguration()
 Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat by patihrz",Duration=6})
-Rayfield:Notify({Title="Update v2.5 STABLE",Content="• ⚡ Repair Speed +12% (3x fire)\n• 💚 Heal Speed +20%\n• 🚪 Gate Speed +15%\n• Distance ESP\n• Speed Boost 1.5x\n• Smart Auto-Repair\n• 🎃 Pumpkin ESP & TP",Duration=10})
+Rayfield:Notify({Title="Update v2.8",Content="• ⚡ Fast Ability Cooldown (NEW!)\n• ⚡ Repair Speed +12%\n• 💚 Heal Speed +20%\n• 🚪 Gate Speed +15%\n• Distance ESP\n• Speed Boost 1.5x\n• Smart Auto-Repair",Duration=10})
