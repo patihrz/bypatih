@@ -1,7 +1,7 @@
 --[[
     Violence District - Enhanced Script
     Made by: patihrz
-    Version: 2.8 (Fixed)
+    Version: 2.9 (Stable)
     
     Features:
     - Fast Heal & Fast Gate
@@ -1463,18 +1463,9 @@ local hookSkillInstalled=false
 local rsAddConn, pgAddConn, pgDescConn, sgAddConn, remAddConn, wsAddConn
 local charAddConns={}
 local function installSkillBlock()
-    if hookSkillInstalled then return end
-    if typeof(hookmetamethod)=="function" and typeof(getnamecallmethod)=="function" then
-        local old
-        old = hookmetamethod(game,"__namecall",function(self,...)
-            local m=getnamecallmethod()
-            if noSkillEnabled and typeof(self)=="Instance" and isExactSkill(self) and (m=="FireServer" or m=="InvokeServer") then
-                return nil
-            end
-            return old(self,...)
-        end)
-        hookSkillInstalled=true
-    end
+    -- DISABLED: hookmetamethod incompatible with Delta Executor
+    -- Skill check blocking removed for compatibility
+    hookSkillInstalled=false
 end
 local function startNoSkill()
     installSkillBlock()
@@ -1529,8 +1520,9 @@ local function evalNoSkill()
     end
 end
 LP:GetPropertyChangedSignal("Team"):Connect(evalNoSkill)
-TabMisc:CreateSection("Skillcheck")
-TabMisc:CreateToggle({Name="No Skillchecks",CurrentValue=false,Flag="NoSkill",Callback=function(s) noSkillToggleUser=s evalNoSkill() end})
+-- DISABLED: No Skillchecks feature (incompatible with Delta Executor)
+-- TabMisc:CreateSection("Skillcheck")
+-- TabMisc:CreateToggle({Name="No Skillchecks",CurrentValue=false,Flag="NoSkill",Callback=function(s) noSkillToggleUser=s evalNoSkill() end})
 
 -- Hitbox Expander (untuk Killer)
 TabMisc:CreateSection("Hitbox (Killer Only)")
