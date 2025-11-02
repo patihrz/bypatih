@@ -1259,6 +1259,94 @@ LP:GetPropertyChangedSignal("Team"):Connect(evalNoSkill)
 TabMisc:CreateSection("Skillcheck")
 TabMisc:CreateToggle({Name="No Skillchecks",CurrentValue=false,Flag="NoSkill",Callback=function(s) noSkillToggleUser=s evalNoSkill() end})
 
+local autoPerfectEnabled = false
+local skillcheckHook = nil
+local perfectHitRate = 0
+
+local function findSkillcheckRemotes()
+    local rem = ReplicatedStorage:FindFirstChild("Remotes")
+    if not rem then return nil, nil end
+    local gen = rem:FindFirstChild("Generator")
+    if not gen then return nil, nil end
+    local result = gen:FindFirstChild("SkillCheckResultEvent") or gen:FindFirstChild("SkillCheckEvent")
+    local fail = gen:FindFirstChild("SkillCheckFailEvent")
+    return result, fail
+end
+
+local SkillCheckResult, SkillCheckFail = findSkillcheckRemotes()
+
+local function hookSkillcheck()
+    if skillcheckHook or not autoPerfectEnabled then return end
+    
+    SkillCheckResult, SkillCheckFail = findSkillcheckRemotes()
+    
+    if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
+        skillcheckHook = hookmetamethod(game, "__namecall", function(self, ...)
+            local args = {...}
+            local method = getnamecallmethod()
+            
+            if autoPerfectEnabled and typeof(self) == "Instance" and method == "FireServer" then
+                local name = self.Name
+                if name == "SkillCheckEvent" or name == "SkillCheckResultEvent" then
+                    local success = args[1]
+                    if success == true or success == false then
+                        perfectHitRate = perfectHitRate + 1
+                        return self.FireServer(self, true, true)
+                    end
+                end
+                
+                if name == "SkillCheckFailEvent" then
+                    return nil
+                end
+            end
+            
+            return skillcheckHook(self, ...)
+        end)
+    end
+end
+
+local function unhookSkillcheck()
+    if skillcheckHook then
+        skillcheckHook = nil
+    end
+    perfectHitRate = 0
+end
+
+TabMisc:CreateToggle({
+    Name="✨ Auto Perfect Skillcheck",
+    CurrentValue=false,
+    Flag="AutoPerfect",
+    Callback=function(state)
+        autoPerfectEnabled = state
+        if state then
+            hookSkillcheck()
+            Rayfield:Notify({
+                Title="Auto Perfect",
+                Content="✨ Semua skillcheck otomatis perfect!\nZona putih = Zona kuning (Great)",
+                Duration=5
+            })
+        else
+            unhookSkillcheck()
+            local msg = perfectHitRate > 0 and "Total perfect: "..perfectHitRate or "Nonaktif"
+            Rayfield:Notify({
+                Title="Auto Perfect",
+                Content="✗ "..msg,
+                Duration=3
+            })
+        end
+    end
+})
+
+ReplicatedStorage.DescendantAdded:Connect(function(d)
+    if d:IsA("RemoteEvent") then
+        if d.Name == "SkillCheckResultEvent" or d.Name == "SkillCheckEvent" then
+            SkillCheckResult = d
+        elseif d.Name == "SkillCheckFailEvent" then
+            SkillCheckFail = d
+        end
+    end
+end)
+
 local function findExitLevers()
     local list={}
     local map=Workspace:FindFirstChild("Map")
@@ -1711,4 +1799,4 @@ TabWorld:CreateButton({
 
 Rayfield:LoadConfiguration()
 Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat by patihrz",Duration=6})
-Rayfield:Notify({Title="Update v2.5 STABLE",Content="• ⚡ Repair Speed +12% (3x fire)\n• 💚 Heal Speed +20%\n• 🚪 Gate Speed +15%\n• Distance ESP\n• Speed Boost 1.5x\n• Smart Auto-Repair\n• 🎃 Pumpkin ESP & TP",Duration=10})
+Rayfield:Notify({Title="Update v2.7",Content="• ✨ Auto Perfect Skillcheck (NEW!)\n• ⚡ Repair Speed +12%\n• 💚 Heal Speed +20%\n• 🚪 Gate Speed +15%\n• Distance ESP\n• Speed Boost 1.5x\n• Smart Auto-Repair",Duration=10})
