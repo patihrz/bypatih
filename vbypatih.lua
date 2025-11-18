@@ -8,7 +8,18 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 local StarterPlayer = game:GetService("StarterPlayer")
 local VirtualUser = game:GetService("VirtualUser")
+local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
 local LP = Players.LocalPlayer
+
+task.spawn(function()
+    pcall(function()
+        UserInputService.TouchEnabled = true
+        UserInputService.MouseEnabled = false
+        UserInputService.KeyboardEnabled = false
+        GuiService:SetMenuIsOpen(false)
+    end)
+end)
 
 local function alive(i)
     if not i then return false end
@@ -859,12 +870,25 @@ for _,d in ipairs(ReplicatedStorage:GetDescendants()) do if d:IsA("RemoteEvent")
 ReplicatedStorage.DescendantAdded:Connect(function(d) if d:IsA("RemoteEvent") or d:IsA("BindableEvent") then connectRemote(d) end end)
 
 local noclipEnabled, noclipConn, noclipTouched = false, nil, {}
+local noclipAutoDisable = false
+
 local function setNoclip(state)
     if state and not noclipConn then
         noclipEnabled = true
         noclipConn = RunService.Stepped:Connect(function()
             local c = LP.Character
             if not c then return end
+            
+            if noclipAutoDisable then
+                local hum = c:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    local st = hum:GetState()
+                    if st == Enum.HumanoidStateType.Climbing or st == Enum.HumanoidStateType.Jumping then
+                        return
+                    end
+                end
+            end
+            
             for _,part in ipairs(c:GetDescendants()) do
                 if part:IsA("BasePart") then
                     if part.CanCollide and not noclipTouched[part] then noclipTouched[part] = true end
@@ -880,6 +904,7 @@ local function setNoclip(state)
     end
 end
 TabPlayer:CreateToggle({Name="Noclip",CurrentValue=false,Flag="Noclip",Callback=function(s) setNoclip(s) end})
+TabPlayer:CreateToggle({Name="Smart Noclip (Auto-pause on vault)",CurrentValue=false,Flag="SmartNoclip",Callback=function(s) noclipAutoDisable=s Rayfield:Notify({Title="Smart Noclip",Content=s and "✓ Auto-pause saat vault" or "✗ Standard noclip",Duration=2}) end})
 LP.CharacterAdded:Connect(function() if noclipEnabled then task.wait(0.2) setNoclip(true) end end)
 
 TabPlayer:CreateSection("Teleports")
@@ -1483,4 +1508,4 @@ TabWorld:CreateButton({
 
 Rayfield:LoadConfiguration()
 Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat by patihrz",Duration=6})
-Rayfield:Notify({Title="Update v2.9 PURE WALLHACK",Content="• ⚡ Repair Speed +12% (3x fire)\n• 💚 Heal Speed +20%\n• 🚪 Gate Speed +15%\n• 👁 Player ESP + Distance\n• 🌍 World ESP (Gen/Hook/Gate/Window/Pallet)\n• 🤖 Smart Auto-Repair\n• ✓ REMOVED: All speed/movement features\n• ✓ FIXED: Vault/Pallet animations work perfectly",Duration=12})
+Rayfield:Notify({Title="Update v3.0 FINAL",Content="• ⚡ Repair/Heal/Gate Speed Boost\n• 👁 Full ESP + Distance\n• 🌍 World ESP (All objects)\n• 🤖 Smart Auto-Repair\n• 📱 Force Mobile UI (for Bluestacks)\n• ✓ Smart Noclip (auto-pause on vault)\n• ✓ ZERO movement interference",Duration=12})
