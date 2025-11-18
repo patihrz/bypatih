@@ -498,60 +498,12 @@ TabWorld:CreateToggle({Name="Hooks",CurrentValue=false,Flag="Hook",Callback=func
 TabWorld:CreateToggle({Name="Gates",CurrentValue=false,Flag="Gate",Callback=function(s) setWorldToggle("Gate", s) end})
 TabWorld:CreateToggle({Name="Windows (Usability)",CurrentValue=false,Flag="Window",Callback=function(s) setWorldToggle("Window", s) end})
 TabWorld:CreateToggle({Name="Pallets (Usability)",CurrentValue=false,Flag="Pallet",Callback=function(s) setWorldToggle("Palletwrong", s) end})
-TabWorld:CreateToggle({Name="🎃 Halloween Pumpkins + Distance",CurrentValue=false,Flag="Pumpkin",Callback=function(s) 
-    setWorldToggle("Pumpkin", s) 
-    if s then
-        local count = 0
-        for _ in pairs(worldReg.Pumpkin) do count = count + 1 end
-        Rayfield:Notify({Title="Pumpkin ESP",Content="✓ ESP aktif • "..count.." labu ditemukan",Duration=4})
-    else
-        Rayfield:Notify({Title="Pumpkin ESP",Content="✗ ESP nonaktif",Duration=2})
-    end
-end})
 TabWorld:CreateSection("Colors")
 TabWorld:CreateColorPicker({Name="Generators",Color=worldColors.Generator,Flag="GenCol",Callback=function(c) worldColors.Generator=c end})
 TabWorld:CreateColorPicker({Name="Hooks",Color=worldColors.Hook,Flag="HookCol",Callback=function(c) worldColors.Hook=c end})
 TabWorld:CreateColorPicker({Name="Gates",Color=worldColors.Gate,Flag="GateCol",Callback=function(c) worldColors.Gate=c end})
 TabWorld:CreateColorPicker({Name="Windows",Color=worldColors.Window,Flag="WinCol",Callback=function(c) worldColors.Window=c end})
 TabWorld:CreateColorPicker({Name="Pallets",Color=worldColors.Palletwrong,Flag="PalCol",Callback=function(c) worldColors.Palletwrong=c end})
-TabWorld:CreateColorPicker({Name="🎃 Pumpkins (Halloween)",Color=worldColors.Pumpkin,Flag="PumpCol",Callback=function(c) worldColors.Pumpkin=c end})
-
-TabWorld:CreateSection("Halloween Event")
-TabWorld:CreateButton({Name="🎃 Scan All Pumpkins",Callback=function()
-    refreshRoots()
-    task.wait(0.5)
-    local count = 0
-    for _ in pairs(worldReg.Pumpkin) do count = count + 1 end
-    Rayfield:Notify({Title="Pumpkin Scanner",Content="✓ Ditemukan "..count.." labu di map ini",Duration=5})
-end})
-
-TabWorld:CreateButton({Name="🎃 Teleport to Nearest Pumpkin",Callback=function()
-    local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then 
-        Rayfield:Notify({Title="Pumpkin Teleport",Content="✗ HumanoidRootPart tidak ditemukan",Duration=3})
-        return 
-    end
-    
-    local nearest, nearestDist = nil, 1e9
-    for model, entry in pairs(worldReg.Pumpkin) do
-        if model and alive(model) and entry.part then
-            local d = dist(hrp.Position, entry.part.Position)
-            if d < nearestDist then
-                nearestDist = d
-                nearest = entry.part
-            end
-        end
-    end
-    
-    if nearest then
-        local cf = nearest.CFrame * CFrame.new(0, 0, -5)
-        cf = cf + Vector3.new(0, 3, 0)
-        tpCFrame(cf)
-        Rayfield:Notify({Title="Pumpkin Teleport",Content="✓ Teleport ke labu terdekat ("..math.floor(nearestDist).."m)",Duration=4})
-    else
-        Rayfield:Notify({Title="Pumpkin Teleport",Content="✗ Tidak ada labu ditemukan\nAktifkan Pumpkin ESP terlebih dahulu",Duration=5})
-    end
-end})
 
 local initLighting = {
     Brightness = Lighting.Brightness,
@@ -800,138 +752,6 @@ local function nsDisable()
 end
 TabVisual:CreateToggle({Name="No Shadows",CurrentValue=false,Flag="NoShadows",Callback=function(s) if s then nsEnable() else nsDisable() end end})
 
-local speedCurrent, speedHumanoid = 16, nil
-local speedEnforced, speedPaused = false, false
-local speedStunUntil, speedSlowUntil = 0, 0
-local speedTickConn, wsConn, stConn, pfConn, anConn = nil, nil, nil, nil, nil
-local speedLastTick, speedTickInterval = 0, 0.08
-local serverBaseline = nil
-local speedBoostActive = false
-
-local function canonicalDefault()
-    local ok,val = pcall(function() return StarterPlayer.CharacterWalkSpeed end)
-    if ok and typeof(val)=="number" and val>0 then return val end
-    return 16
-end
-local function setWalkSpeed(h,v) if h and h.Parent then pcall(function() h.WalkSpeed=v end) end end
-
-local function fixRunAnim()
-    local h = speedHumanoid
-    if not h or not h.Parent then return end
-    local animator = h:FindFirstChildOfClass("Animator")
-    if not animator then
-        local ac = h:FindFirstChildOfClass("AnimationController")
-        if ac then animator = ac:FindFirstChildOfClass("Animator") end
-    end
-    if not animator then return end
-    for _,track in ipairs(animator:GetPlayingAnimationTracks()) do
-        local name = (track.Name or ""):lower()
-        if name:find("run") or name:find("walk") or name:find("sprint") then
-            pcall(function() track:AdjustSpeed(1) end)
-        end
-    end
-end
-
-local function canEnforce()
-    local h = speedHumanoid
-    if not speedEnforced then return false end
-    if not h or not h.Parent then return false end
-    if speedPaused then return false end
-    if now()<speedStunUntil or now()<speedSlowUntil then return false end
-    if h.Health<=0 then return false end
-    if h.PlatformStand or h.Sit then return false end
-    local st = h:GetState()
-    if st==Enum.HumanoidStateType.Ragdoll or st==Enum.HumanoidStateType.FallingDown or st==Enum.HumanoidStateType.Physics or st==Enum.HumanoidStateType.GettingUp or st==Enum.HumanoidStateType.Seated then return false end
-    local hrp = h.Parent:FindFirstChild("HumanoidRootPart")
-    if hrp and hrp.Anchored then return false end
-    return true
-end
-
-local function heartbeat()
-    if not speedHumanoid then return end
-    local t = now()
-    if t - speedLastTick < speedTickInterval then return end
-    speedLastTick = t
-    if not canEnforce() then return end
-    local targetSpeed = speedBoostActive and (speedCurrent * 1.5) or speedCurrent
-    if math.abs(speedHumanoid.WalkSpeed - targetSpeed) > 0.1 then 
-        setWalkSpeed(speedHumanoid, targetSpeed)
-    end
-end
-
-local function disconnectAll()
-    if speedTickConn then speedTickConn:Disconnect() speedTickConn=nil end
-    if wsConn then wsConn:Disconnect() wsConn=nil end
-    if stConn then stConn:Disconnect() stConn=nil end
-    if pfConn then pfConn:Disconnect() pfConn=nil end
-    if anConn then anConn:Disconnect() anConn=nil end
-end
-
-local function captureServerBaseline()
-    task.spawn(function()
-        local h = speedHumanoid
-        if not h or not h.Parent then return end
-        local start = now()
-        local last = h.WalkSpeed
-        while now() - start < 0.6 do
-            last = h.WalkSpeed
-            task.wait(0.1)
-        end
-        if typeof(last)=="number" and last > 0 then serverBaseline = last end
-    end)
-end
-
-local function applyDisabledState()
-    local h = speedHumanoid
-    if not h or not h.Parent then return end
-    local target = serverBaseline or canonicalDefault()
-    setWalkSpeed(h, target)
-    fixRunAnim()
-    captureServerBaseline()
-end
-
-local function bindHumanoid(h)
-    speedHumanoid = h
-
-    if wsConn then wsConn:Disconnect() end
-    wsConn = h:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
-        if speedEnforced and canEnforce() and h.WalkSpeed ~= speedCurrent then
-            setWalkSpeed(h, speedCurrent)
-        end
-    end)
-
-    if stConn then stConn:Disconnect() end
-    stConn = h.StateChanged:Connect(function(_, new)
-        if new==Enum.HumanoidStateType.Ragdoll
-        or new==Enum.HumanoidStateType.FallingDown
-        or new==Enum.HumanoidStateType.Physics
-        or new==Enum.HumanoidStateType.GettingUp
-        or new==Enum.HumanoidStateType.Seated then
-            speedPaused=true
-            speedStunUntil = math.max(speedStunUntil, now()+0.9)
-            task.delay(1.0,function() speedPaused=false end)
-        end
-    end)
-
-    if pfConn then pfConn:Disconnect() end
-    pfConn = h:GetPropertyChangedSignal("PlatformStand"):Connect(function() speedPaused = h.PlatformStand end)
-
-    if anConn then anConn:Disconnect() end
-    anConn = h.AncestryChanged:Connect(function(_, parent)
-        if not parent then disconnectAll() end
-    end)
-
-    if speedEnforced then
-        if not speedTickConn then
-            speedLastTick = 0
-            speedTickConn = RunService.Heartbeat:Connect(heartbeat)
-        end
-        if canEnforce() then setWalkSpeed(h, speedCurrent) end
-    else
-        applyDisabledState()
-    end
-end
-
 local abilityNotifyEnabled = true
 TabMisc:CreateSection("Notifications")
 TabMisc:CreateToggle({Name="Killer Ability Notify",CurrentValue=true,Flag="AbilityNotify",Callback=function(s) abilityNotifyEnabled=s end})
@@ -992,17 +812,6 @@ local function connectRemote(inst)
         end
     end
 
-    if underMechanics then
-        if inst.Name=="PalletStun" then hook(function() speedStunUntil = math.max(speedStunUntil, now()+3.5) end)
-        elseif inst.Name=="Slow" then hook(function() speedSlowUntil = math.max(speedSlowUntil, now()+3.0) end)
-        elseif inst.Name=="Slowserver" and isRE then
-            hook(function(_,_,dur)
-                local d = (typeof(dur)=="number") and math.clamp(dur,1,10) or 3.0
-                speedSlowUntil = math.max(speedSlowUntil, now()+d)
-            end)
-        end
-    end
-
     if underPallet then
         if inst.Name=="PalletDropEvent" then hook(function()
             local hrp=LP.Character and LP.Character:FindFirstChild("HumanoidRootPart"); if not hrp then return end
@@ -1050,41 +859,7 @@ end
 for _,d in ipairs(ReplicatedStorage:GetDescendants()) do if d:IsA("RemoteEvent") or d:IsA("BindableEvent") then connectRemote(d) end end
 ReplicatedStorage.DescendantAdded:Connect(function(d) if d:IsA("RemoteEvent") or d:IsA("BindableEvent") then connectRemote(d) end end)
 
-local function onCharacterAdded(char)
-    local h = char:WaitForChild("Humanoid", 10) or char:FindFirstChildOfClass("Humanoid")
-    if h then bindHumanoid(h) end
-    char.ChildAdded:Connect(function(ch) if ch:IsA("Humanoid") then bindHumanoid(ch) end end)
-end
-if LP.Character then onCharacterAdded(LP.Character) end
-LP.CharacterAdded:Connect(onCharacterAdded)
 
-TabPlayer:CreateSection("Movement")
-TabPlayer:CreateToggle({
-    Name="Speed Lock",
-    CurrentValue=false,
-    Flag="SpeedLock",
-    Callback=function(state)
-        speedEnforced = state
-        local h = speedHumanoid
-        if not h or not h.Parent then return end
-        if state then
-            if not speedTickConn then
-                speedLastTick = 0
-                speedTickConn = RunService.Heartbeat:Connect(heartbeat)
-            end
-            if canEnforce() then setWalkSpeed(h, speedCurrent) end
-            Rayfield:Notify({Title="Speed Lock",Content="✓ Speed Lock aktif",Duration=3,Icon="check"})
-        else
-            disconnectAll()
-            speedBoostActive = false
-            applyDisabledState()
-            Rayfield:Notify({Title="Speed Lock",Content="✗ Speed Lock nonaktif",Duration=3,Icon="x"})
-        end
-    end
-})
-TabPlayer:CreateSlider({Name="Walk Speed",Range={0,200},Increment=1,CurrentValue=16,Flag="WalkSpeed",Callback=function(v) speedCurrent=v if speedEnforced and canEnforce() then setWalkSpeed(speedHumanoid,speedCurrent) end end})
-TabPlayer:CreateToggle({Name="Speed Boost (1.5x)",CurrentValue=false,Flag="SpeedBoost",Callback=function(s) speedBoostActive=s Rayfield:Notify({Title="Speed Boost",Content=s and "✓ Boost aktif (1.5x)" or "✗ Boost nonaktif",Duration=3}) end})
-TabPlayer:CreateButton({Name="Reset Speed",Callback=function() speedCurrent=canonicalDefault() if speedHumanoid and speedHumanoid.Parent then if speedEnforced and canEnforce() then setWalkSpeed(speedHumanoid,speedCurrent) else applyDisabledState() end Rayfield:Notify({Title="Speed",Content="Speed direset ke default",Duration=2}) end end})
 
 local noclipEnabled, noclipConn, noclipTouched = false, nil, {}
 local function setNoclip(state)
@@ -1711,4 +1486,4 @@ TabWorld:CreateButton({
 
 Rayfield:LoadConfiguration()
 Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat by patihrz",Duration=6})
-Rayfield:Notify({Title="Update v2.5 STABLE",Content="• ⚡ Repair Speed +12% (3x fire)\n• 💚 Heal Speed +20%\n• 🚪 Gate Speed +15%\n• Distance ESP\n• Speed Boost 1.5x\n• Smart Auto-Repair\n• 🎃 Pumpkin ESP & TP",Duration=10})
+Rayfield:Notify({Title="Update v2.6 STABLE",Content="• ⚡ Repair Speed +12% (3x fire)\n• 💚 Heal Speed +20%\n• 🚪 Gate Speed +15%\n• Distance ESP\n• Smart Auto-Repair\n• All Wallhacks\n• Speed & Pumpkin ESP removed",Duration=10})
