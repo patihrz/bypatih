@@ -772,7 +772,6 @@ local function connectRemote(inst)
     if not(isRE or isBE) then return end
     local full = inst:GetFullName()
     local underKillers    = full:find("ReplicatedStorage.Remotes.Killers",1,true)~=nil
-    local underMechanics  = full:find("ReplicatedStorage.Remotes.Mechanics",1,true)~=nil
     local underPallet     = full:find("ReplicatedStorage.Remotes.Pallet",1,true)~=nil
     local underWindow     = full:find("ReplicatedStorage.Remotes.Window",1,true)~=nil
 
@@ -859,7 +858,21 @@ end
 for _,d in ipairs(ReplicatedStorage:GetDescendants()) do if d:IsA("RemoteEvent") or d:IsA("BindableEvent") then connectRemote(d) end end
 ReplicatedStorage.DescendantAdded:Connect(function(d) if d:IsA("RemoteEvent") or d:IsA("BindableEvent") then connectRemote(d) end end)
 
+local function fixWalkSpeedOnSpawn(char)
+    task.spawn(function()
+        task.wait(0.5)
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            task.wait(0.3)
+            if hum.WalkSpeed == 0 or hum.WalkSpeed < 10 then
+                hum.WalkSpeed = 16
+            end
+        end
+    end)
+end
 
+if LP.Character then fixWalkSpeedOnSpawn(LP.Character) end
+LP.CharacterAdded:Connect(fixWalkSpeedOnSpawn)
 
 local noclipEnabled, noclipConn, noclipTouched = false, nil, {}
 local function setNoclip(state)
@@ -1486,4 +1499,4 @@ TabWorld:CreateButton({
 
 Rayfield:LoadConfiguration()
 Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat by patihrz",Duration=6})
-Rayfield:Notify({Title="Update v2.6 STABLE",Content="• ⚡ Repair Speed +12% (3x fire)\n• 💚 Heal Speed +20%\n• 🚪 Gate Speed +15%\n• Distance ESP\n• Smart Auto-Repair\n• All Wallhacks\n• Speed & Pumpkin ESP removed",Duration=10})
+Rayfield:Notify({Title="Update v2.7 STABLE",Content="• ⚡ Repair Speed +12% (3x fire)\n• 💚 Heal Speed +20%\n• 🚪 Gate Speed +15%\n• Distance ESP\n• Smart Auto-Repair\n• All Wallhacks\n• ✓ FIX: Movement stuck saat spawn",Duration=10})
