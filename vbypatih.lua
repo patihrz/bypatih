@@ -858,90 +858,6 @@ end
 for _,d in ipairs(ReplicatedStorage:GetDescendants()) do if d:IsA("RemoteEvent") or d:IsA("BindableEvent") then connectRemote(d) end end
 ReplicatedStorage.DescendantAdded:Connect(function(d) if d:IsA("RemoteEvent") or d:IsA("BindableEvent") then connectRemote(d) end end)
 
-local movementFixActive = true
-local movementMonitor = nil
-
-local function removeMovementBlockers(char)
-    for _, obj in ipairs(char:GetDescendants()) do
-        if obj:IsA("BodyVelocity") or obj:IsA("BodyGyro") or obj:IsA("BodyPosition") or obj:IsA("BodyAngularVelocity") then
-            local name = obj.Name:lower()
-            if name:find("stun") or name:find("slow") or name:find("freeze") or name:find("root") then
-                pcall(function() obj:Destroy() end)
-            end
-        end
-    end
-end
-
-local function fixWalkSpeedOnSpawn(char)
-    task.spawn(function()
-        task.wait(0.3)
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hum then return end
-        
-        task.wait(0.5)
-        
-        if hum.WalkSpeed == 0 or hum.WalkSpeed < 10 then
-            hum.WalkSpeed = 16
-        end
-        
-        removeMovementBlockers(char)
-        
-        if movementMonitor then
-            pcall(function() movementMonitor:Disconnect() end)
-        end
-        
-        movementMonitor = RunService.Heartbeat:Connect(function()
-            if not movementFixActive or not hum or not hum.Parent then 
-                if movementMonitor then movementMonitor:Disconnect() movementMonitor = nil end
-                return 
-            end
-            
-            if hum.WalkSpeed == 0 or hum.WalkSpeed < 10 then
-                hum.WalkSpeed = 16
-            end
-            
-            if hum.PlatformStand then
-                hum.PlatformStand = false
-            end
-        end)
-        
-        char.DescendantAdded:Connect(function(obj)
-            if not movementFixActive then return end
-            if obj:IsA("BodyVelocity") or obj:IsA("BodyGyro") or obj:IsA("BodyPosition") then
-                task.wait(0.05)
-                local name = obj.Name:lower()
-                if name:find("stun") or name:find("slow") or name:find("freeze") or name:find("root") then
-                    pcall(function() obj:Destroy() end)
-                end
-            end
-        end)
-    end)
-end
-
-if LP.Character then fixWalkSpeedOnSpawn(LP.Character) end
-LP.CharacterAdded:Connect(fixWalkSpeedOnSpawn)
-
-TabPlayer:CreateSection("Movement Fix")
-TabPlayer:CreateToggle({
-    Name="Auto-Fix Movement (BETA)",
-    CurrentValue=true,
-    Flag="MovementFix",
-    Callback=function(state)
-        movementFixActive = state
-        if not state and movementMonitor then
-            movementMonitor:Disconnect()
-            movementMonitor = nil
-        elseif state and LP.Character then
-            fixWalkSpeedOnSpawn(LP.Character)
-        end
-        Rayfield:Notify({
-            Title="Movement Fix",
-            Content=state and "✓ Auto-fix aktif" or "✗ Auto-fix nonaktif",
-            Duration=3
-        })
-    end
-})
-
 local noclipEnabled, noclipConn, noclipTouched = false, nil, {}
 local function setNoclip(state)
     if state and not noclipConn then
@@ -1567,4 +1483,4 @@ TabWorld:CreateButton({
 
 Rayfield:LoadConfiguration()
 Rayfield:Notify({Title="Violence District - Enhanced",Content="✓ Script berhasil dimuat by patihrz",Duration=6})
-Rayfield:Notify({Title="Update v2.8 STABLE",Content="• ⚡ Repair Speed +12% (3x fire)\n• 💚 Heal Speed +20%\n• 🚪 Gate Speed +15%\n• Distance ESP\n• Smart Auto-Repair\n• All Wallhacks\n• ✓ FIXED: Continuous movement monitor\n• ✓ Anti-stun/freeze protection",Duration=10})
+Rayfield:Notify({Title="Update v2.9 PURE WALLHACK",Content="• ⚡ Repair Speed +12% (3x fire)\n• 💚 Heal Speed +20%\n• 🚪 Gate Speed +15%\n• 👁 Player ESP + Distance\n• 🌍 World ESP (Gen/Hook/Gate/Window/Pallet)\n• 🤖 Smart Auto-Repair\n• ✓ REMOVED: All speed/movement features\n• ✓ FIXED: Vault/Pallet animations work perfectly",Duration=12})
