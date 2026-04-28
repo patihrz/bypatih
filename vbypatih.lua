@@ -24,7 +24,9 @@ local cfg = {
     autoEnabled = false,
     waitingDuration = 30,
     roundDuration = 20,
+    roundPickupStart = 15,
     floodDuration = 45,
+    lobbyDuration = 9,
     postPickupDelay = 4,
     pickupTarget = 3,
 
@@ -139,12 +141,11 @@ local function getPartFrom(inst)
     return nil
 end
 
-local function teleportTo(part)
+local function teleportTo(part, forwardDistance, upDistance)
     local hrp = getHRP()
     if not hrp or not part then return false end
     local ok = pcall(function()
-        -- Position in front of part (not on top), adjust for part size
-        local offset = Vector3.new(0, 3, -8)
+        local offset = Vector3.new(0, upDistance or 3, -(forwardDistance or 8))
         hrp.CFrame = part.CFrame * CFrame.new(offset)
     end)
     return ok
@@ -331,17 +332,39 @@ local function waitPhase(seconds, phaseName)
     return cfg.autoEnabled
 end
 
-local function doFloodPickCycle()
+local function doLobbyEscapePhase()
+    local t0 = now()
+    while cfg.autoEnabled and (now() - t0) < cfg.lobbyDuration do
+        local left = math.max(0, math.ceil(cfg.lobbyDuration - (now() - t0)))
+        state.step = "ESCAPE TO LOBBY (" .. tostring(left) .. "s)"
+
+        local lobbyPart = findNearestByNames({
+            "Lobby",
+            "LobbySpawn",
+            "Spawn",
+            "SpawnLocation",
+            "MainLobby",
+        })
+        if lobbyPart then
+            teleportTo(lobbyPart)
+        end
+
+        task.wait(0.25)
+    end
+    return cfg.autoEnabled
+end
+
+local function doTimedPickCycle(cycleDuration, phaseLabel)
     local t0 = now()
     local picked = false
 
-    while cfg.autoEnabled and (now() - t0) < cfg.floodDuration do
+    while cfg.autoEnabled and (now() - t0) < cycleDuration do
         if state.pickupCount >= cfg.pickupTarget then
             break
         end
         
-        local left = math.max(0, math.ceil(cfg.floodDuration - (now() - t0)))
-        state.step = "FLOOD IS COMING (" .. tostring(left) .. "s) [" .. state.pickupCount .. "/" .. cfg.pickupTarget .. "]"
+        local left = math.max(0, math.ceil(cycleDuration - (now() - t0)))
+        state.step = phaseLabel .. " (" .. tostring(left) .. "s) [" .. state.pickupCount .. "/" .. cfg.pickupTarget .. "]"
 
         local carriedCount = getCarriedBrainrotCount()
         if carriedCount >= 3 then
@@ -396,7 +419,7 @@ local function runLoop()
         state.step = "TO_WAITING"
         local waitingPart, source = findReadyPointNearFuse()
         if waitingPart then
-            teleportTo(waitingPart)
+            teleportTo(waitingPart, 18, 5)
             if source == "WAITING" then
                 safeNotify("Step", "Teleport ke Waiting (dekat fuse)", 2)
             else
@@ -407,8 +430,20 @@ local function runLoop()
         end
 
         if not waitPhase(cfg.waitingDuration, "WAITING FOR PLAYERS") then break end
-        if not waitPhase(cfg.roundDuration, "ROUND IN PROGRESS") then break end
-        doFloodPickCycle()
+
+        local roundPickupStart = math.max(0, math.min(cfg.roundPickupStart, cfg.roundDuration))
+        if roundPickupStart > 0 then
+            if not waitPhase(roundPickupStart, "ROUND IN PROGRESS") then break end
+        end
+
+        local roundWindow = math.max(0, cfg.roundDuration - roundPickupStart)
+        if roundWindow > 0 then
+            doTimedPickCycle(roundWindow, "ROUND IN PROGRESS")
+        end
+
+        doTimedPickCycle(cfg.floodDuration, "FLOOD IS COMING")
+
+        if not doLobbyEscapePhase() then break end
 
         if not cfg.autoEnabled then break end
     end
@@ -454,6 +489,17 @@ TabMain:CreateSlider({
 })
 
 TabMain:CreateSlider({
+    Name = "Round Spawn Start (sec)",
+    Range = {0, 60},
+    Increment = 1,
+    CurrentValue = cfg.roundPickupStart,
+    Flag = "RoundPickupStart",
+    Callback = function(v)
+        cfg.roundPickupStart = v
+    end,
+})
+
+TabMain:CreateSlider({
     Name = "Flood Is Coming (sec)",
     Range = {5, 120},
     Increment = 1,
@@ -461,6 +507,17 @@ TabMain:CreateSlider({
     Flag = "FloodDuration",
     Callback = function(v)
         cfg.floodDuration = v
+    end,
+})
+
+TabMain:CreateSlider({
+    Name = "Escape to Lobby (sec)",
+    Range = {8, 10},
+    Increment = 1,
+    CurrentValue = cfg.lobbyDuration,
+    Flag = "LobbyDuration",
+    Callback = function(v)
+        cfg.lobbyDuration = v
     end,
 })
 
