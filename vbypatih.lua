@@ -24,6 +24,7 @@ local cfg = {
     autoEnabled = false,
     autoDetectTiming = true,
     waitingDuration = 30,
+    waitingTouchDuration = 1.2,
     roundDuration = 20,
     roundPickupStart = 15,
     floodDuration = 45,
@@ -573,9 +574,15 @@ local function runLoop()
         state.step = "TO_WAITING"
         local waitingPart, source = findReadyPointNearFuse()
         if waitingPart then
-            teleportTo(waitingPart, 18, 5)
             if source == "WAITING" then
-                safeNotify("Step", "Teleport ke Waiting (dekat fuse)", 2)
+                -- Must touch waiting floor first so player is registered in queue.
+                teleportTo(waitingPart, 0, 5)
+                task.wait(cfg.waitingTouchDuration)
+            else
+                teleportTo(waitingPart, 18, 5)
+            end
+            if source == "WAITING" then
+                safeNotify("Step", "Injak lantai Waiting (join queue)", 2)
             else
                 safeNotify("Step", "Waiting tidak ketemu, fallback ke Fuse", 2)
             end
@@ -597,10 +604,18 @@ local function runLoop()
         if roundWindow > 0 then
             local pickedInRound = doTimedPickCycle(roundWindow, "ROUND IN PROGRESS")
             if not pickedInRound then
-                local readyPart = findNearestByNames(cfg.waitingNames)
-                if readyPart then
-                    teleportTo(readyPart, 18, 5)
-                    safeNotify("Step", "Mythic tidak ada di round, balik ke AFK", 2)
+                if cfg.autoDetectTiming then
+                    local fusePart = findNearestByNames(cfg.fuseNames)
+                    if fusePart then
+                        teleportTo(fusePart)
+                        safeNotify("Step", "Mythic tidak ada, langsung ke Fuse", 2)
+                    end
+                else
+                    local readyPart = findNearestByNames(cfg.waitingNames)
+                    if readyPart then
+                        teleportTo(readyPart, 0, 5)
+                        safeNotify("Step", "Mythic tidak ada di round, balik ke AFK", 2)
+                    end
                 end
             end
         end
@@ -648,6 +663,17 @@ TabMain:CreateSlider({
     Flag = "WaitingDuration",
     Callback = function(v)
         cfg.waitingDuration = v
+    end,
+})
+
+TabMain:CreateSlider({
+    Name = "Touch Waiting Floor (sec)",
+    Range = {0, 5},
+    Increment = 0.1,
+    CurrentValue = cfg.waitingTouchDuration,
+    Flag = "WaitingTouchDuration",
+    Callback = function(v)
+        cfg.waitingTouchDuration = v
     end,
 })
 
