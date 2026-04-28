@@ -22,6 +22,7 @@ local TabDebug = Window:CreateTab("Debug")
 
 local cfg = {
     autoEnabled = false,
+    autoDetectTiming = true,
     waitingDuration = 30,
     roundDuration = 20,
     roundPickupStart = 15,
@@ -78,6 +79,8 @@ local state = {
     thread = nil,
     step = "IDLE",
     pickupCount = 0,
+    lastDetectedPhase = "NONE",
+    lastDetectedPhaseText = "",
 }
 
 local function now()
@@ -118,6 +121,78 @@ local function containsAnyToken(text, tokens)
         end
     end
     return false
+end
+
+local function readTextLikeValue(inst)
+    if not inst then return nil end
+
+    local className = inst.ClassName
+    if className == "StringValue" or className == "TextLabel" or className == "TextButton" or className == "TextBox" then
+        local ok, value = pcall(function()
+            return inst.Value or inst.Text
+        end)
+        if ok and value ~= nil and value ~= "" then
+            return tostring(value)
+        end
+    end
+
+    return nil
+end
+
+local function detectPhaseState()
+    local phaseMap = {
+        WAITING = { "waiting for players", "waiting", "ready", "afk zone", "queue" },
+        ROUND = { "round in progress", "round", "prepare", "preparing" },
+        FLOOD = { "flood is coming", "flood", "incoming flood" },
+        LOBBY = { "escape to lobby", "lobby", "back to lobby" },
+    }
+
+    for _, d in ipairs(Workspace:GetDescendants()) do
+        local text = readTextLikeValue(d)
+        if text then
+            local lowerText = string.lower(text)
+            for phaseName, tokens in pairs(phaseMap) do
+                for _, token in ipairs(tokens) do
+                    if string.find(lowerText, token, 1, true) then
+                        return phaseName, text
+                    end
+                end
+            end
+        end
+    end
+
+    local playerGui = LP:FindFirstChildOfClass("PlayerGui")
+    if playerGui then
+        for _, d in ipairs(playerGui:GetDescendants()) do
+            local text = readTextLikeValue(d)
+            if text then
+                local lowerText = string.lower(text)
+                for phaseName, tokens in pairs(phaseMap) do
+                    for _, token in ipairs(tokens) do
+                        if string.find(lowerText, token, 1, true) then
+                            return phaseName, text
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return nil, nil
+end
+
+local function updatePhaseDebug(phaseName, phaseText)
+    local phaseLabel = phaseName or "NONE"
+    local phaseValue = phaseText or ""
+
+    if state.lastDetectedPhase ~= phaseLabel or state.lastDetectedPhaseText ~= phaseValue then
+        state.lastDetectedPhase = phaseLabel
+        state.lastDetectedPhaseText = phaseValue
+
+        if phaseLabel ~= "NONE" then
+            safeNotify("Phase Debug", phaseLabel .. (phaseValue ~= "" and (" | " .. phaseValue) or ""), 2)
+        end
+    end
 end
 
 local function isNameCandidate(inst, names)
@@ -332,11 +407,56 @@ local function waitPhase(seconds, phaseName)
     return cfg.autoEnabled
 end
 
+local function waitForPhase(targetPhase, fallbackSeconds, phaseName)
+    if not cfg.autoDetectTiming then
+        return waitPhase(fallbackSeconds, phaseName)
+    end
+
+    local t0 = now()
+    local seenTarget = false
+
+    while cfg.autoEnabled and (now() - t0) < fallbackSeconds do
+        local detectedPhase, detectedText = detectPhaseState()
+        if detectedPhase == targetPhase then
+            seenTarget = true
+            updatePhaseDebug(detectedPhase, detectedText)
+            state.step = phaseName .. " [AUTO]"
+            task.wait(0.25)
+            return true
+        end
+
+        if seenTarget and detectedPhase ~= targetPhase then
+            updatePhaseDebug(detectedPhase or "NONE", detectedText)
+            return true
+        end
+
+        local left = math.max(0, math.ceil(fallbackSeconds - (now() - t0)))
+        if detectedText then
+            updatePhaseDebug(detectedPhase or "NONE", detectedText)
+            state.step = phaseName .. " [" .. tostring(detectedText) .. "] (" .. tostring(left) .. "s)"
+        else
+            state.step = phaseName .. " (" .. tostring(left) .. "s)"
+        end
+
+        task.wait(0.25)
+    end
+
+    return cfg.autoEnabled
+end
+
 local function doLobbyEscapePhase()
     local t0 = now()
     while cfg.autoEnabled and (now() - t0) < cfg.lobbyDuration do
         local left = math.max(0, math.ceil(cfg.lobbyDuration - (now() - t0)))
         state.step = "ESCAPE TO LOBBY (" .. tostring(left) .. "s)"
+
+        if cfg.autoDetectTiming then
+            local detectedPhase = detectPhaseState()
+            if detectedPhase == "WAITING" then
+                state.step = "WAITING FOR PLAYERS [AUTO]"
+                return true
+            end
+        end
 
         local lobbyPart = findNearestByNames({
             "Lobby",
@@ -429,18 +549,17 @@ local function runLoop()
             safeNotify("Step", "Waiting/Fuse tidak ditemukan", 2)
         end
 
-        if not waitPhase(cfg.waitingDuration, "WAITING FOR PLAYERS") then break end
+        if not waitForPhase("WAITING", cfg.waitingDuration, "WAITING FOR PLAYERS") then break end
 
         local roundPickupStart = math.max(0, math.min(cfg.roundPickupStart, cfg.roundDuration))
-        if roundPickupStart > 0 then
-            if not waitPhase(roundPickupStart, "ROUND IN PROGRESS") then break end
-        end
+        if roundPickupStart > 0 and not waitForPhase("ROUND", roundPickupStart, "ROUND IN PROGRESS") then break end
 
         local roundWindow = math.max(0, cfg.roundDuration - roundPickupStart)
         if roundWindow > 0 then
             doTimedPickCycle(roundWindow, "ROUND IN PROGRESS")
         end
 
+        if not waitForPhase("FLOOD", 3, "FLOOD IS COMING") then break end
         doTimedPickCycle(cfg.floodDuration, "FLOOD IS COMING")
 
         if not doLobbyEscapePhase() then break end
@@ -463,6 +582,15 @@ TabMain:CreateToggle({
         if v and not state.thread then
             state.thread = task.spawn(runLoop)
         end
+    end,
+})
+
+TabMain:CreateToggle({
+    Name = "Auto Detect Timing",
+    CurrentValue = cfg.autoDetectTiming,
+    Flag = "AutoDetectTiming",
+    Callback = function(v)
+        cfg.autoDetectTiming = v
     end,
 })
 
@@ -562,6 +690,19 @@ TabDebug:CreateButton({
             safeNotify("Mythical", tostring(mi.Name) .. " (" .. math.floor(md) .. "m)", 5)
         else
             safeNotify("Mythical", "Not found", 5)
+        end
+    end,
+})
+
+TabDebug:CreateButton({
+    Name = "Check Detected Phase",
+    Callback = function()
+        local phaseName, phaseText = detectPhaseState()
+        updatePhaseDebug(phaseName or "NONE", phaseText or "")
+        if phaseName then
+            safeNotify("Phase Debug", phaseName .. (phaseText and phaseText ~= "" and (" | " .. phaseText) or ""), 5)
+        else
+            safeNotify("Phase Debug", "NONE | no phase text found", 5)
         end
     end,
 })
