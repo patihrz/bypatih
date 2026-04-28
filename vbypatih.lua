@@ -127,13 +127,34 @@ local function readTextLikeValue(inst)
     if not inst then return nil end
 
     local className = inst.ClassName
-    if className == "StringValue" or className == "TextLabel" or className == "TextButton" or className == "TextBox" then
+    if className == "StringValue" then
         local ok, value = pcall(function()
-            return inst.Value or inst.Text
+            return inst.Value
         end)
-        if ok and value ~= nil and value ~= "" then
+        if ok and value ~= nil and tostring(value) ~= "" then
             return tostring(value)
         end
+    elseif className == "TextLabel" or className == "TextButton" or className == "TextBox" then
+        local ok, value = pcall(function()
+            return inst.Text
+        end)
+        if ok and value ~= nil and tostring(value) ~= "" then
+            return tostring(value)
+        end
+    elseif className == "IntValue" or className == "NumberValue" then
+        local ok, value = pcall(function()
+            return inst.Value
+        end)
+        if ok and value ~= nil then
+            return tostring(value)
+        end
+    end
+
+    local okName, instName = pcall(function()
+        return inst.Name
+    end)
+    if okName and instName and instName ~= "" then
+        return tostring(instName)
     end
 
     return nil
@@ -524,6 +545,8 @@ local function doTimedPickCycle(cycleDuration, phaseLabel)
     if picked and cfg.postPickupDelay > 0 then
         waitPhase(cfg.postPickupDelay, "POST PICKUP")
     end
+
+    return picked
 end
 
 local function runLoop()
@@ -556,7 +579,14 @@ local function runLoop()
 
         local roundWindow = math.max(0, cfg.roundDuration - roundPickupStart)
         if roundWindow > 0 then
-            doTimedPickCycle(roundWindow, "ROUND IN PROGRESS")
+            local pickedInRound = doTimedPickCycle(roundWindow, "ROUND IN PROGRESS")
+            if not pickedInRound then
+                local readyPart = findNearestByNames(cfg.waitingNames)
+                if readyPart then
+                    teleportTo(readyPart, 18, 5)
+                    safeNotify("Step", "Mythic tidak ada di round, balik ke AFK", 2)
+                end
+            end
         end
 
         if not waitForPhase("FLOOD", 3, "FLOOD IS COMING") then break end
