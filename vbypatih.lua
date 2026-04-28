@@ -498,9 +498,11 @@ end
 local function doTimedPickCycle(cycleDuration, phaseLabel)
     local t0 = now()
     local picked = false
+    local shouldFuse = false
 
     while cfg.autoEnabled and (now() - t0) < cycleDuration do
         if state.pickupCount >= cfg.pickupTarget then
+            shouldFuse = true
             break
         end
         
@@ -510,6 +512,7 @@ local function doTimedPickCycle(cycleDuration, phaseLabel)
         local carriedCount = getCarriedBrainrotCount()
         if carriedCount >= 3 then
             safeNotify("Inventory", "Sudah carry 3 brainrot, harus ke Fuse", 2)
+            shouldFuse = true
             break
         end
 
@@ -525,21 +528,29 @@ local function doTimedPickCycle(cycleDuration, phaseLabel)
                 state.pickupCount = state.pickupCount + 1
                 picked = true
                 safeNotify("Step", "Mythical diambil (" .. state.pickupCount .. "/" .. cfg.pickupTarget .. ")", 2)
-                
-                -- Go to fuse immediately after successful pickup
-                task.wait(0.5)
-                local fusePart = findNearestByNames(cfg.fuseNames)
-                if fusePart then
-                    teleportTo(fusePart)
-                    safeNotify("Step", "Ke Fuse Machine", 2)
+
+                task.wait(0.2)
+                local carriedAfterPickup = getCarriedBrainrotCount()
+                if carriedAfterPickup >= 3 or state.pickupCount >= cfg.pickupTarget then
+                    shouldFuse = true
+                    break
                 end
             else
                 safeNotify("Step", "Pickup gagal (brainrot hilang?)", 2)
             end
-            break
+
+            task.wait(0.1)
         end
 
         task.wait(0.3)
+    end
+
+    if picked and (shouldFuse or getCarriedBrainrotCount() > 0) then
+        local fusePart = findNearestByNames(cfg.fuseNames)
+        if fusePart then
+            teleportTo(fusePart)
+            safeNotify("Step", "Ke Fuse Machine", 2)
+        end
     end
 
     if picked and cfg.postPickupDelay > 0 then
@@ -575,7 +586,12 @@ local function runLoop()
         if not waitForPhase("WAITING", cfg.waitingDuration, "WAITING FOR PLAYERS") then break end
 
         local roundPickupStart = math.max(0, math.min(cfg.roundPickupStart, cfg.roundDuration))
-        if roundPickupStart > 0 and not waitForPhase("ROUND", roundPickupStart, "ROUND IN PROGRESS") then break end
+        if cfg.autoDetectTiming then
+            if not waitForPhase("ROUND", 3, "ROUND IN PROGRESS") then break end
+            roundPickupStart = 0
+        elseif roundPickupStart > 0 then
+            if not waitForPhase("ROUND", roundPickupStart, "ROUND IN PROGRESS") then break end
+        end
 
         local roundWindow = math.max(0, cfg.roundDuration - roundPickupStart)
         if roundWindow > 0 then
