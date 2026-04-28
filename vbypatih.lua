@@ -143,7 +143,9 @@ local function teleportTo(part)
     local hrp = getHRP()
     if not hrp or not part then return false end
     local ok = pcall(function()
-        hrp.CFrame = part.CFrame + Vector3.new(0, 3, 0)
+        -- Position in front of part (not on top), adjust for part size
+        local offset = Vector3.new(0, 3, -8)
+        hrp.CFrame = part.CFrame * CFrame.new(offset)
     end)
     return ok
 end
@@ -349,26 +351,31 @@ local function doFloodPickCycle()
 
         local mythic, mythicPart = findNearestMythicalBrainrot()
         if mythic and mythicPart then
+            -- Teleport close to mythical, not directly on it
             teleportTo(mythicPart)
-            task.wait(0.12)
+            task.wait(0.15)
+            
+            -- Try pickup with retry
             local pickupSuccess = pickupBrainrot(mythic)
             if pickupSuccess then
                 state.pickupCount = state.pickupCount + 1
                 picked = true
                 safeNotify("Step", "Mythical diambil (" .. state.pickupCount .. "/" .. cfg.pickupTarget .. ")", 2)
-            end
-
-            local fusePart = findNearestByNames(cfg.fuseNames)
-            if fusePart then
-                teleportTo(fusePart)
-                safeNotify("Step", "Teleport ke Fuse Machine", 2)
+                
+                -- Go to fuse immediately after successful pickup
+                task.wait(0.5)
+                local fusePart = findNearestByNames(cfg.fuseNames)
+                if fusePart then
+                    teleportTo(fusePart)
+                    safeNotify("Step", "Ke Fuse Machine", 2)
+                end
             else
-                safeNotify("Step", "Fuse Machine tidak ditemukan", 2)
+                safeNotify("Step", "Pickup gagal (brainrot hilang?)", 2)
             end
             break
         end
 
-        task.wait(0.25)
+        task.wait(0.3)
     end
 
     if picked and cfg.postPickupDelay > 0 then
