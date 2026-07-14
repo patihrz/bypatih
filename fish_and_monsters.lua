@@ -1942,25 +1942,68 @@ local function findFishermanNPC()
         return cachedFishermanNPC
     end
     
-    -- 1. Scan direct children di Workspace (Cepat)
+    -- Kata kunci pencarian (Inggris & Indonesia)
+    local keywords = {"fisherman", "merchant", "shop", "seller", "nelayan", "penjual", "toko", "ikan", "jual"}
+    
+    -- 1. Scan ProximityPrompts di Workspace (Sangat akurat untuk NPC interaktif)
+    for _, prompt in ipairs(workspace:GetDescendants()) do
+        if prompt:IsA("ProximityPrompt") then
+            local parent = prompt.Parent
+            if parent then
+                local name = parent.Name:lower()
+                local promptText = (prompt.ObjectText .. " " .. prompt.ActionText):lower()
+                
+                local isMatch = false
+                for _, kw in ipairs(keywords) do
+                    if name:find(kw) or promptText:find(kw) then
+                        isMatch = true
+                        break
+                    end
+                end
+                
+                if isMatch then
+                    local hrp = parent:FindFirstChild("HumanoidRootPart") or parent:FindFirstChild("Head") or (parent:IsA("BasePart") and parent) or parent:FindFirstChildWhichIsA("BasePart")
+                    if hrp then
+                        print("[F&M Auto Sell] Fisherman NPC found via ProximityPrompt: " .. parent:GetFullName())
+                        cachedFishermanNPC = hrp
+                        return hrp
+                    end
+                end
+            end
+        end
+    end
+    
+    -- 2. Scan direct children di Workspace (Cepat)
     for _, obj in ipairs(workspace:GetChildren()) do
         local name = obj.Name:lower()
-        if name:find("fisherman") or name:find("merchant") or name:find("shop") or name:find("seller") then
+        local isMatch = false
+        for _, kw in ipairs(keywords) do
+            if name:find(kw) then isMatch = true; break end
+        end
+        
+        if isMatch then
             local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart")
             if hrp then
+                print("[F&M Auto Sell] Fisherman NPC found via Workspace Direct Children: " .. obj:GetFullName())
                 cachedFishermanNPC = hrp
                 return hrp
             end
         end
     end
     
-    -- 2. Scan seluruh Workspace descendants (Jika NPC ditaruh di sub-folder)
+    -- 3. Scan seluruh Workspace descendants (Jika NPC ditaruh di sub-folder)
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("Model") then
             local name = obj.Name:lower()
-            if name:find("fisherman") or name:find("merchant") or name:find("shop") or name:find("seller") then
+            local isMatch = false
+            for _, kw in ipairs(keywords) do
+                if name:find(kw) then isMatch = true; break end
+            end
+            
+            if isMatch then
                 local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart")
                 if hrp then
+                    print("[F&M Auto Sell] Fisherman NPC found via Workspace Descendants: " .. obj:GetFullName())
                     cachedFishermanNPC = hrp
                     return hrp
                 end
@@ -1991,8 +2034,8 @@ local function performSell()
             
             -- Anchor HRP agar posisi stabil di server & tidak terlempar/slide
             hrp.Anchored = true
-            hrp.CFrame = npcPart.CFrame + Vector3.new(0, 3, 0)
-            task.wait(0.5) -- Jeda aman biar server mendaftarkan posisi baru kita
+            hrp.CFrame = npcPart.CFrame
+            task.wait(0.6) -- Jeda aman biar server mendaftarkan posisi baru kita (0.6 detik)
         else
             warn("[F&M Auto Sell] NPC Fisherman tidak ditemukan di workspace! Menjual tanpa teleport...")
             Rayfield:Notify({
