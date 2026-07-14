@@ -1825,13 +1825,13 @@ local function getFishRarity(fishId)
 end
 
 local function scanTableForInventory(tbl, depth, list)
-    if depth > 3 then return end
+    if depth > 4 then return end
     if type(tbl) ~= "table" then return end
     
     -- Cek jika tabel ini sendiri merepresentasikan satu item ikan
     local fishId = tbl.FishId or tbl.fishId or tbl.Name or tbl.name or tbl.Id or tbl.id
     local instanceId = tbl.InstanceId or tbl.instanceId or tbl.UUID or tbl.uuid or tbl.instance
-    if type(fishId) == "string" and type(instanceId) == "string" and #instanceId > 3 then
+    if type(fishId) == "string" and type(instanceId) == "string" and instanceId:match("^%x%x%x%x%x%x%x%x$") then
         -- Masukkan jika belum ada
         local exists = false
         for _, item in ipairs(list) do
@@ -1851,8 +1851,8 @@ local function scanTableForInventory(tbl, depth, list)
     -- Cek jika tabel ini adalah dictionary dari item ikan
     for k, v in pairs(tbl) do
         if type(v) == "table" then
-            -- Cek jika key adalah instanceId (string heksadesimal) dan v adalah data ikan
-            if type(k) == "string" and #k > 3 and (v.FishId or v.fishId or v.Name or v.name or v.Id or v.id) then
+            -- Cek jika key adalah instanceId (8-char hex)
+            if type(k) == "string" and k:match("^%x%x%x%x%x%x%x%x$") then
                 local fId = v.FishId or v.fishId or v.Name or v.name or v.Id or v.id
                 local exists = false
                 for _, item in ipairs(list) do
@@ -1860,7 +1860,7 @@ local function scanTableForInventory(tbl, depth, list)
                 end
                 if not exists then
                     table.insert(list, {
-                        FishId = fId,
+                        FishId = fId or "Unknown",
                         InstanceId = k,
                         Count = v.Count or v.count or 1,
                         Rarity = v.Rarity or v.rarity
@@ -1868,6 +1868,19 @@ local function scanTableForInventory(tbl, depth, list)
                 end
             else
                 scanTableForInventory(v, depth + 1, list)
+            end
+        elseif type(v) == "string" and type(k) == "string" and k:match("^%x%x%x%x%x%x%x%x$") then
+            -- Kasus map sederhana: { ["47bc7979"] = "Axolotl" }
+            local exists = false
+            for _, item in ipairs(list) do
+                if item.InstanceId == k then exists = true; break end
+            end
+            if not exists then
+                table.insert(list, {
+                    FishId = v,
+                    InstanceId = k,
+                    Count = 1
+                })
             end
         end
     end
@@ -1881,7 +1894,6 @@ local function getInventoryFish()
     local Knit = getKnitClient()
     if Knit and type(Knit.Controllers) == "table" then
         for ctrlName, ctrl in pairs(Knit.Controllers) do
-            -- Cek method/data controller secara dinamis
             pcall(function()
                 -- 1a. Coba panggil method get inventory jika ada
                 local invData = nil
@@ -1895,7 +1907,19 @@ local function getInventoryFish()
                     scanTableForInventory(invData, 1, fishList)
                 end
                 
-                -- 1b. Scan seluruh properties controller secara rekursif
+                -- 1b. Scan ReplicaController secara spesifik
+                if ctrlName == "ReplicaController" then
+                    local reps = ctrl._replicas or ctrl.Replicas or ctrl.replicas
+                    if type(reps) == "table" then
+                        for repId, replica in pairs(reps) do
+                            if type(replica) == "table" and type(replica.Data) == "table" then
+                                scanTableForInventory(replica.Data, 1, fishList)
+                            end
+                        end
+                    end
+                end
+                
+                -- 1c. Scan seluruh properties controller secara rekursif
                 scanTableForInventory(ctrl, 1, fishList)
             end)
         end
@@ -1911,7 +1935,7 @@ local function getInventoryFish()
                 local rarity = item:GetAttribute("Rarity")
                 local count = item:GetAttribute("Count") or 1
                 
-                if fishId and instanceId and #instanceId > 3 and fishId ~= "InstanceId" then
+                if fishId and instanceId and instanceId:match("^%x%x%x%x%x%x%x%x$") and fishId ~= "InstanceId" then
                     local exists = false
                     for _, existing in ipairs(fishList) do
                         if existing.InstanceId == instanceId then exists = true; break end
@@ -1939,7 +1963,7 @@ local function getInventoryFish()
                         local fishId = f:GetAttribute("FishId") or f.Name
                         local instanceId = f:GetAttribute("InstanceId") or f.Name
                         local count = f:GetAttribute("Count") or 1
-                        if fishId and instanceId and #instanceId > 3 and fishId ~= "InstanceId" then
+                        if fishId and instanceId and instanceId:match("^%x%x%x%x%x%x%x%x$") and fishId ~= "InstanceId" then
                             local exists = false
                             for _, existing in ipairs(fishList) do
                                 if existing.InstanceId == instanceId then exists = true; break end
@@ -1961,50 +1985,83 @@ local function getInventoryFish()
     -- JALUR 4: Scan PlayerGui descendants (Mencari attribute / ValueObject dari UI tas)
     if #fishList == 0 then
         for _, obj in ipairs(LP.PlayerGui:GetDescendants()) do
-            -- Cek StringValue yang berisi ID unik
-            if obj:IsA("StringValue") and (obj.Name == "InstanceId" or obj.Name == "instanceId" or obj.Name == "UUID") then
-                local instanceId = obj.Value
-                if instanceId and #instanceId > 3 then
-                    local parent = obj.Parent
-                    local fishId = parent and (parent:GetAttribute("FishId") or parent:GetAttribute("Name") or parent.Name) or "Unknown"
-                    if fishId == "InstanceId" or fishId == "instanceId" then
-                        fishId = parent.Parent and parent.Parent.Name or "Unknown"
+            -- A. Cek StringValue yang berisi ID unik (8-char hex)
+            if obj:IsA("StringValue") then
+                local val = obj.Value
+                if type(val) == "string" and val:match("^%x%x%x%x%x%x%x%x$") then
+                    local fishId = obj.Name
+                    if fishId:lower():find("id") or fishId:lower():find("uuid") or fishId:lower():find("instance") then
+                        fishId = obj.Parent and obj.Parent.Name or "Unknown"
+                    end
+                    if obj.Parent then
+                        fishId = obj.Parent:GetAttribute("FishId") or obj.Parent:GetAttribute("Name") or fishId
                     end
                     
                     local exists = false
                     for _, existing in ipairs(fishList) do
-                        if existing.InstanceId == instanceId then exists = true; break end
+                        if existing.InstanceId == val then exists = true; break end
                     end
-                    if not exists then
+                    if not exists and fishId ~= "Unknown" and not fishId:match("^%x%x%x%x%x%x%x%x$") then
                         table.insert(fishList, {
                             FishId = fishId,
-                            InstanceId = instanceId,
+                            InstanceId = val,
                             Count = 1
                         })
                     end
                 end
             end
             
-            -- Cek attributes langsung di UI frames
-            local instanceId = obj:GetAttribute("InstanceId") or obj:GetAttribute("instanceId") or obj:GetAttribute("UUID") or obj:GetAttribute("uuid")
-            if instanceId and type(instanceId) == "string" and #instanceId > 3 then
-                local fishId = obj:GetAttribute("FishId") or obj:GetAttribute("fishId") or obj:GetAttribute("Name") or obj.Name
-                if fishId == "InstanceId" or fishId == "instanceId" then
-                    fishId = obj.Parent and obj.Parent.Name or "Unknown"
+            -- B. Cek Name yang merupakan hex 8-char (Template slot tas)
+            local objName = obj.Name
+            if type(objName) == "string" and objName:match("^%x%x%x%x%x%x%x%x$") then
+                local fishId = obj:GetAttribute("FishId") or obj:GetAttribute("Name") or obj.Parent.Name
+                if fishId:match("^%x%x%x%x%x%x%x%x$") or fishId == "Frame" or fishId == "Template" or fishId == "Slot" then
+                    -- Cari teks nama ikan di child TextLabel
+                    for _, child in ipairs(obj:GetChildren()) do
+                        if child:IsA("TextLabel") and child.Text ~= "" and not child.Text:find("%d") then
+                            fishId = child.Text
+                            break
+                        end
+                    end
                 end
                 
                 local exists = false
                 for _, existing in ipairs(fishList) do
-                    if existing.InstanceId == instanceId then exists = true; break end
+                    if existing.InstanceId == objName then exists = true; break end
                 end
-                if not exists then
+                if not exists and fishId ~= "Unknown" and not fishId:match("^%x%x%x%x%x%x%x%x$") then
                     table.insert(fishList, {
                         FishId = fishId,
-                        InstanceId = instanceId,
+                        InstanceId = objName,
                         Count = 1
                     })
                 end
             end
+            
+            -- C. Cek seluruh attributes objek
+            pcall(function()
+                local attrs = obj:GetAttributes()
+                for attrName, attrVal in pairs(attrs) do
+                    if type(attrVal) == "string" and attrVal:match("^%x%x%x%x%x%x%x%x$") then
+                        local fishId = obj:GetAttribute("FishId") or obj:GetAttribute("Name") or obj.Name
+                        if fishId:lower():find("id") or fishId:lower():find("uuid") or fishId:lower():find("instance") then
+                            fishId = obj.Parent and obj.Parent.Name or "Unknown"
+                        end
+                        
+                        local exists = false
+                        for _, existing in ipairs(fishList) do
+                            if existing.InstanceId == attrVal then exists = true; break end
+                        end
+                        if not exists and fishId ~= "Unknown" and not fishId:match("^%x%x%x%x%x%x%x%x$") then
+                            table.insert(fishList, {
+                                FishId = fishId,
+                                InstanceId = attrVal,
+                                Count = 1
+                            })
+                        end
+                    end
+                end
+            end)
         end
     end
     
