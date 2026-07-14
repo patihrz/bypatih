@@ -2,10 +2,10 @@
     Fish and Monsters! Script
     Made by: Antigravity & patihrz
     Features:
-    - Auto Equip & Auto Cast
-    - GUI-based Auto Tap (Faster than Macro)
+    - Auto Fishing (Remote Bypass) - 100% Clientless & Instant Catch
+    - Auto Fishing (UI/Tool Click) - Safe fallback
     - Auto Join Raid & Auto Tap Boss (GUI/ClickDetector Spam)
-    - Built-in Remote Spy & GUI Scanner (Outputs to F9 Console / `/console`)
+    - Built-in Remote Spy & GUI Scanner (Outputs to F9 Console / Delta Console)
     - WalkSpeed, JumpPower, & Infinite Jump
 ]]--
 
@@ -38,6 +38,11 @@ local autoEquip = false
 local autoCast = false
 local autoTap = false
 local tapDelay = 0.05
+
+-- Remote Farming States
+local autoFishingRemote = false
+local rodNameInput = "Fishingrod_Losi"
+local floaterNameInput = "Floater_Doll"
 
 local autoJoinRaid = false
 local autoTapBoss = false
@@ -95,7 +100,7 @@ local function equipRod()
     end
 end
 
--- Cast Line
+-- Cast Line (UI/Tool fallback)
 local function castRod()
     local rod = getRod()
     if rod then
@@ -126,10 +131,54 @@ local function findRaidOrb()
     return nil
 end
 
+-- Extract UUID from various data structures recursively
+local function extractUUID(val)
+    if type(val) == "string" then
+        if val:match("^%x+-%x+-%x+-%x+-%x+$") or #val == 36 then
+            return val
+        end
+    elseif type(val) == "table" then
+        for k, v in pairs(val) do
+            local res = extractUUID(v)
+            if res then return res end
+        end
+    end
+    return nil
+end
+
 ----------------------------------------------------
 -- AUTO FISHING TAB
 ----------------------------------------------------
-TabFishing:CreateSection("Fishing Controls")
+TabFishing:CreateSection("Remote Bypass Farming (Recomended)")
+
+TabFishing:CreateToggle({
+    Name = "Auto Fishing (Remote Bypass)",
+    CurrentValue = false,
+    Flag = "AutoFishingRemote",
+    Callback = function(value)
+        autoFishingRemote = value
+    end
+})
+
+TabFishing:CreateInput({
+    Name = "Rod Name (for Remote)",
+    PlaceholderText = "Fishingrod_Losi",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        rodNameInput = Text
+    end
+})
+
+TabFishing:CreateInput({
+    Name = "Floater Name (for Remote)",
+    PlaceholderText = "Floater_Doll",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        floaterNameInput = Text
+    end
+})
+
+TabFishing:CreateSection("UI/Tool Click Fallback")
 
 TabFishing:CreateToggle({
     Name = "Auto Equip Rod",
@@ -141,7 +190,7 @@ TabFishing:CreateToggle({
 })
 
 TabFishing:CreateToggle({
-    Name = "Auto Cast Rod",
+    Name = "Auto Cast Rod (Tool Click)",
     CurrentValue = false,
     Flag = "AutoCast",
     Callback = function(value)
@@ -150,7 +199,7 @@ TabFishing:CreateToggle({
 })
 
 TabFishing:CreateToggle({
-    Name = "Auto Tap GUI (Fast Catch)",
+    Name = "Auto Tap GUI (Screen Buttons)",
     CurrentValue = false,
     Flag = "AutoTap",
     Callback = function(value)
@@ -159,7 +208,7 @@ TabFishing:CreateToggle({
 })
 
 TabFishing:CreateSlider({
-    Name = "Fishing Tap Delay",
+    Name = "Fishing Tap Delay (UI Mode)",
     Range = {0.01, 1},
     Increment = 0.01,
     CurrentValue = 0.05,
@@ -169,7 +218,126 @@ TabFishing:CreateSlider({
     end
 })
 
--- Auto Fishing Loops
+----------------------------------------------------
+-- REMOTE AUTO FISHING SYSTEM LOGIC
+----------------------------------------------------
+
+local function runRemoteFishingCycle()
+    -- Look up remotes dynamically
+    local ThrowFloater = ReplicatedStorage:FindFirstChild("ThrowFloater", true)
+    local ConfirmFloatingCast = ReplicatedStorage:FindFirstChild("ConfirmFloatingCast", true)
+    local RequestFishBite = ReplicatedStorage:FindFirstChild("RequestFishBite", true)
+    local StartPulling = ReplicatedStorage:FindFirstChild("StartPulling", true)
+    local FishingPullInput = ReplicatedStorage:FindFirstChild("FishingPullInput", true)
+
+    if not (ThrowFloater and ConfirmFloatingCast and RequestFishBite and StartPulling and FishingPullInput) then
+        warn("[F&M Remote Farm] Error: Missing one or more fishing remotes in ReplicatedStorage!")
+        return
+    end
+
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local origin = hrp.Position
+    local target = origin + hrp.CFrame.LookVector * 15
+
+    -- 1. Throw Floater
+    print("[F&M Remote Farm] 1. Casting Floater...")
+    local floatConfig = {
+        LightInfluence = 0,
+        FaceCamera = true,
+        Color = Color3.new(0.94117647409439, 0.3098039329052, 1),
+        Transparency = 0.02,
+        LightEmission = 1,
+        Width = 0.24
+    }
+
+    local castSuccess, castResult = pcall(function()
+        return ThrowFloater:InvokeServer(origin, target, rodNameInput, floaterNameInput, floatConfig, 2.5)
+    end)
+
+    if not castSuccess then
+        warn("[F&M Remote Farm] ThrowFloater Invoke failed: " .. tostring(castResult))
+        return
+    end
+
+    task.wait(1.5) -- Jeda agar floater mendarat di air
+
+    if not autoFishingRemote then return end
+
+    -- 2. Confirm Floating Cast
+    print("[F&M Remote Farm] 2. Confirming Cast...")
+    pcall(function()
+        ConfirmFloatingCast:InvokeServer()
+    end)
+
+    -- Tunggu sampai ikan memakan umpan (bite)
+    print("[F&M Remote Farm] Waiting for fish bite...")
+    task.wait(math.random(2, 4)) -- Jeda bite acak agar terlihat natural oleh server
+
+    if not autoFishingRemote then return end
+
+    -- 3. Request Fish Bite
+    print("[F&M Remote Farm] 3. Requesting Fish Bite...")
+    pcall(function()
+        RequestFishBite:InvokeServer()
+    end)
+
+    task.wait(0.5)
+
+    if not autoFishingRemote then return end
+
+    -- 4. Start Pulling (Memulai minigame menarik ikan, mengembalikan UUID)
+    print("[F&M Remote Farm] 4. Invoking StartPulling...")
+    local pullSuccess, pullResult = pcall(function()
+        return StartPulling:InvokeServer()
+    end)
+
+    if not pullSuccess then
+        warn("[F&M Remote Farm] StartPulling failed: " .. tostring(pullResult))
+        return
+    end
+
+    local uuid = extractUUID(pullResult)
+    if not uuid then
+        warn("[F&M Remote Farm] Gagal mengekstrak UUID Sesi! Hasil StartPulling: " .. tostring(pullResult))
+        return
+    end
+
+    print("[F&M Remote Farm] Got Session UUID: " .. uuid)
+    task.wait(0.1)
+
+    -- 5. Spam FishingPullInput (Tapping remote instan)
+    print("[F&M Remote Farm] 5. Tapping remote to catch fish...")
+    for i = 1, 60 do
+        if not autoFishingRemote then break end
+        pcall(function()
+            FishingPullInput:InvokeServer(uuid, "tap")
+        end)
+        task.wait(0.01) -- Spam super cepat bypass interface
+    end
+
+    print("[F&M Remote Farm] Fish caught successfully!")
+end
+
+-- Remote Farm Loop Thread
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if autoFishingRemote then
+            local status, err = pcall(runRemoteFishingCycle)
+            if not status then
+                warn("[F&M Remote Farm Loop Error]: " .. tostring(err))
+            end
+        end
+    end
+end)
+
+
+----------------------------------------------------
+-- UI FALLBACK LOOPS
+----------------------------------------------------
 task.spawn(function()
     while true do
         task.wait(1)
@@ -181,7 +349,7 @@ end)
 
 task.spawn(function()
     while true do
-        task.wait(3) -- Cast check frequency
+        task.wait(3)
         if autoCast then
             local char = LP.Character
             if char then
@@ -205,7 +373,6 @@ task.spawn(function()
                             local name = gui.Name:lower()
                             local text = (gui:IsA("TextButton") and gui.Text:lower()) or ""
                             
-                            -- Detect fishing minigame tap buttons
                             if name:find("tap") or name:find("click") or name:find("reel") or name:find("shake") or name:find("fish") or
                                text:find("tap") or text:find("click") or text:find("reel") or text:find("shake") or text:find("fish") then
                                 
@@ -289,13 +456,12 @@ task.spawn(function()
     end
 end)
 
--- Auto Tap Boss Loop (Abuses GUI signals and ClickDetectors at high speed)
+-- Auto Tap Boss Loop
 task.spawn(function()
     while true do
         task.wait(bossTapDelay)
         if autoTapBoss then
             pcall(function()
-                -- 1. Click physical click detectors on the Boss model in Workspace
                 for _, desc in ipairs(Workspace:GetDescendants()) do
                     if desc:IsA("ClickDetector") then
                         if fireclickdetector then
@@ -306,7 +472,6 @@ task.spawn(function()
                     end
                 end
                 
-                -- 2. Click Raid Tap UI Buttons
                 for _, gui in ipairs(LP.PlayerGui:GetDescendants()) do
                     if gui:IsA("TextButton") or gui:IsA("ImageButton") then
                         if gui.Visible and gui.Active then
@@ -316,7 +481,6 @@ task.spawn(function()
                             if name:find("boss") or name:find("raid") or name:find("tap") or name:find("click") or
                                text:find("boss") or text:find("raid") or text:find("tap") or text:find("click") then
                                 
-                                -- Abuse tap: fire 20 times in a single loop
                                 for i = 1, 20 do
                                     firesignal(gui.MouseButton1Click)
                                     firesignal(gui.Activated)
@@ -334,17 +498,17 @@ end)
 ----------------------------------------------------
 -- DEVELOPER & SCANNER TAB
 ----------------------------------------------------
-TabDeveloper:CreateSection("Network & GUI Logger (Output: F9 Console)")
+TabDeveloper:CreateSection("Network & GUI Logger (Output: F9 / Delta Console)")
 
 TabDeveloper:CreateToggle({
-    Name = "Enable Remote Spy (Print to F9)",
+    Name = "Enable Remote Spy (Print to Console)",
     CurrentValue = false,
     Flag = "RemoteSpy",
     Callback = function(value)
         remoteSpyEnabled = value
         Rayfield:Notify({
             Title = "Remote Spy",
-            Content = value and "Remote Spy Enabled! Type /console in chat to view logs." or "Remote Spy Disabled.",
+            Content = value and "Remote Spy Enabled! Check Delta/F9 Console." or "Remote Spy Disabled.",
             Duration = 3
         })
     end
@@ -362,7 +526,7 @@ TabDeveloper:CreateButton({
             end
         end
         print("=== SCAN COMPLETE (Found " .. count .. " remotes) ===")
-        Rayfield:Notify({Title = "Scan Complete", Content = "Found " .. count .. " remotes. Check F9 console!", Duration = 3})
+        Rayfield:Notify({Title = "Scan Complete", Content = "Found " .. count .. " remotes. Check Console!", Duration = 3})
     end
 })
 
@@ -381,7 +545,7 @@ TabDeveloper:CreateButton({
             end
         end
         print("=== SCAN COMPLETE (Found " .. count .. " visible buttons) ===")
-        Rayfield:Notify({Title = "Scan Complete", Content = "Found " .. count .. " buttons. Check F9 console!", Duration = 3})
+        Rayfield:Notify({Title = "Scan Complete", Content = "Found " .. count .. " buttons. Check Console!", Duration = 3})
     end
 })
 
@@ -515,6 +679,6 @@ end)
 print("[F&M] Script fully initialized! Load config or customize toggles.")
 Rayfield:Notify({
     Title = "Fish & Monsters!",
-    Content = "Script loaded successfully! Open /console in chat to view Spy info.",
+    Content = "Script loaded successfully! Remote Bypass is ready.",
     Duration = 5
 })
