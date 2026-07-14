@@ -1504,6 +1504,30 @@ TabDeveloper:CreateButton({
     end
 })
 
+TabDeveloper:CreateButton({
+    Name = "[DEBUG] Scan Workspace NPCs (Console)",
+    Callback = function()
+        print("=== WORKSPACE NPC SCAN ===")
+        local count = 0
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("Model") then
+                local hum = obj:FindFirstChildOfClass("Humanoid")
+                local isPlayer = game:GetService("Players"):GetPlayerFromCharacter(obj)
+                
+                if hum and not isPlayer then
+                    count = count + 1
+                    local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
+                    local posStr = hrp and tostring(hrp.Position) or "No Part"
+                    print(string.format("[%d] Name: '%s' | Path: %s | Pos: %s", count, obj.Name, obj:GetFullName(), posStr))
+                end
+            end
+        end
+        print("=== SCAN COMPLETE (Found " .. count .. " NPCs) ===")
+        Rayfield:Notify({Title = "NPC Scan Complete", Content = "Found " .. count .. " NPCs. Check Console!", Duration = 4})
+    end
+})
+
+
 -- Metatable Hooking for Remote Spy (Dengan deep table serialization)
 -- Hanya jalan di executor yang support getrawmetatable (Synapse, KRNL, etc.)
 -- Delta / mobile executor: fallback gracefully
@@ -1947,6 +1971,7 @@ local function findFishermanNPC()
 end
 
 -- Utama: lakukan penjualan berdasarkan filter (dengan bypass teleportasi)
+-- Utama: lakukan penjualan berdasarkan filter (dengan bypass teleportasi + anchoring)
 local function performSell()
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -1956,11 +1981,25 @@ local function performSell()
         local npcPart = findFishermanNPC()
         if npcPart then
             oldCFrame = hrp.CFrame
-            -- Teleport tepat di atas NPC agar server mendeteksi posisi valid
+            
+            -- Kasih notifikasi info NPC yang dideteksi
+            Rayfield:Notify({
+                Title = "Teleporting to Merchant",
+                Content = "Mendekati NPC: " .. npcPart.Parent.Name .. " untuk menjual...",
+                Duration = 2
+            })
+            
+            -- Anchor HRP agar posisi stabil di server & tidak terlempar/slide
+            hrp.Anchored = true
             hrp.CFrame = npcPart.CFrame + Vector3.new(0, 3, 0)
-            task.wait(0.2) -- Jeda agar server mendaftarkan posisi baru kita
+            task.wait(0.5) -- Jeda aman biar server mendaftarkan posisi baru kita
         else
             warn("[F&M Auto Sell] NPC Fisherman tidak ditemukan di workspace! Menjual tanpa teleport...")
+            Rayfield:Notify({
+                Title = "NPC Not Found!",
+                Content = "NPC Fisherman tidak terdeteksi di workspace. Menjual di tempat...",
+                Duration = 3
+            })
         end
     end
 
@@ -2037,10 +2076,13 @@ local function performSell()
         success, resultType = false, "Remote tidak ditemukan"
     end
     
-    -- Kembalikan posisi awal player secara instan setelah invoke selesai
-    if hrp and oldCFrame and teleportToSell then
-        task.wait(0.05)
-        hrp.CFrame = oldCFrame
+    -- Unanchor dan kembalikan posisi awal player secara aman
+    if hrp and teleportToSell then
+        hrp.Anchored = false
+        if oldCFrame then
+            task.wait(0.05)
+            hrp.CFrame = oldCFrame
+        end
     end
     
     return success, resultType
