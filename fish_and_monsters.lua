@@ -2,10 +2,11 @@
     Fish and Monsters! Script
     Made by: Antigravity & patihrz
     Features:
-    - Auto Fishing (Remote Bypass) - 100% Clientless & Instant Catch
-    - Auto Fishing (UI/Tool Click) - Safe fallback
-    - Auto Join Raid & Auto Tap Boss (GUI/ClickDetector Spam)
-    - Built-in Remote Spy & GUI Scanner (Outputs to F9 Console / Delta Console)
+    - Knit Client Controller Scanner & Invoker
+    - Auto Fishing (Remote Bypass / Knit Hook)
+    - Auto Fishing (UI Fallback)
+    - Auto Join Raid & Auto Tap Boss (Spam PlayerTap Remote)
+    - Built-in Remote Spy & GUI Scanner
     - WalkSpeed, JumpPower, & Infinite Jump
 ]]--
 
@@ -98,8 +99,6 @@ local function equipRod()
             hum:EquipTool(rod)
             print("[F&M Helper] Equipped rod: " .. rod.Name)
         end
-    else
-        print("[F&M Helper] Rod already equipped or not found.")
     end
 end
 
@@ -133,21 +132,6 @@ local function findRaidOrb()
     return nil
 end
 
--- Extract UUID from various data structures recursively
-local function extractUUID(val)
-    if type(val) == "string" then
-        if val:match("^%x+-%x+-%x+-%x+-%x+$") or #val == 36 then
-            return val
-        end
-    elseif type(val) == "table" then
-        for k, v in pairs(val) do
-            local res = extractUUID(v)
-            if res then return res end
-        end
-    end
-    return nil
-end
-
 -- Robust Knit Remote Lookup
 local function findKnitRemote(serviceName, remoteName)
     local rep = game:GetService("ReplicatedStorage")
@@ -174,6 +158,19 @@ local function findKnitRemote(serviceName, remoteName)
     return rep:FindFirstChild(remoteName, true)
 end
 
+-- Try to require Knit framework Client-side
+local function getKnitClient()
+    local rep = game:GetService("ReplicatedStorage")
+    local knitModule = rep:FindFirstChild("knit", true) or rep:FindFirstChild("Knit", true)
+    if knitModule and knitModule:IsA("ModuleScript") then
+        local success, Knit = pcall(require, knitModule)
+        if success then
+            return Knit
+        end
+    end
+    return nil
+end
+
 ----------------------------------------------------
 -- AUTO FISHING TAB
 ----------------------------------------------------
@@ -185,11 +182,6 @@ TabFishing:CreateToggle({
     Flag = "AutoFishingRemote",
     Callback = function(value)
         autoFishingRemote = value
-        if value then
-            print("[F&M Remote Farm] Started Remote Bypass Farm Thread.")
-        else
-            print("[F&M Remote Farm] Stopped Remote Bypass Farm Thread.")
-        end
     end
 })
 
@@ -256,7 +248,6 @@ TabFishing:CreateSlider({
 ----------------------------------------------------
 
 local function runRemoteFishingCycle()
-    -- Look up remotes dynamically
     local ThrowFloater = findKnitRemote("FishingReplicationService", "ThrowFloater")
     local ConfirmFloatingCast = findKnitRemote("FishingReplicationService", "ConfirmFloatingCast")
     local RequestFishBite = findKnitRemote("FishingReplicationService", "RequestFishBite")
@@ -265,41 +256,28 @@ local function runRemoteFishingCycle()
     local FishingPullInput = findKnitRemote("FishingRewardService", "FishingPullInput")
 
     if not (ThrowFloater and ConfirmFloatingCast and RequestFishBite and StartPulling and StopFishing and FishingPullInput) then
-        warn("[F&M Remote Farm] Error: Missing one or more fishing remotes in ReplicatedStorage!")
-        print("ThrowFloater:", tostring(ThrowFloater))
-        print("ConfirmFloatingCast:", tostring(ConfirmFloatingCast))
-        print("RequestFishBite:", tostring(RequestFishBite))
-        print("StartPulling:", tostring(StartPulling))
-        print("StopFishing:", tostring(StopFishing))
-        print("FishingPullInput:", tostring(FishingPullInput))
+        warn("[F&M Remote Farm] Missing remotes!")
         return
     end
 
-    -- 0. Equip Rod first (Server check)
     equipRod()
     task.wait(0.3)
 
     if not autoFishingRemote then return end
 
-    -- Reset state by invoking StopFishing
     print("[F&M Remote Farm] Resetting fishing state...")
-    pcall(function()
-        StopFishing:InvokeServer()
-    end)
+    pcall(function() StopFishing:InvokeServer() end)
     task.wait(0.2)
 
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then 
-        warn("[F&M Remote Farm] HumanoidRootPart not found.")
-        return 
-    end
+    if not hrp then return end
 
     local origin = hrp.Position
     local target = origin + hrp.CFrame.LookVector * 15
 
     -- 1. Throw Floater
-    print("[F&M Remote Farm] 1. Throwing Floater...")
+    print("[F&M Remote Farm] 1. Casting Floater...")
     local floatConfig = {
         LightInfluence = 0,
         FaceCamera = true,
@@ -309,31 +287,14 @@ local function runRemoteFishingCycle()
         Width = 0.24
     }
 
-    local castSuccess, castResult = pcall(function()
-        return ThrowFloater:InvokeServer(origin, target, rodNameInput, floaterNameInput, floatConfig, 2.5)
-    end)
-
-    if not castSuccess then
-        warn("[F&M Remote Farm] ThrowFloater failed: " .. tostring(castResult))
-        return
-    else
-        print("[F&M Remote Farm] ThrowFloater Success. Result: " .. tostring(castResult))
-    end
-
-    task.wait(1.5) -- Wait for floater to land
+    pcall(function() ThrowFloater:InvokeServer(origin, target, rodNameInput, floaterNameInput, floatConfig, 2.5) end)
+    task.wait(1.5)
 
     if not autoFishingRemote then return end
 
     -- 2. Confirm Floating Cast
-    print("[F&M Remote Farm] 2. Confirming Floating Cast...")
-    local confirmSuccess, confirmResult = pcall(function()
-        return ConfirmFloatingCast:InvokeServer()
-    end)
-    if confirmSuccess then
-        print("[F&M Remote Farm] Confirm Cast Success. Result: " .. tostring(confirmResult))
-    else
-        warn("[F&M Remote Farm] Confirm Cast Failed: " .. tostring(confirmResult))
-    end
+    print("[F&M Remote Farm] 2. Confirming Cast...")
+    pcall(function() ConfirmFloatingCast:InvokeServer() end)
 
     -- Wait for bite
     print("[F&M Remote Farm] Waiting for bite...")
@@ -343,45 +304,60 @@ local function runRemoteFishingCycle()
 
     -- 3. Request Fish Bite
     print("[F&M Remote Farm] 3. Requesting Fish Bite...")
-    local biteSuccess, biteResult = pcall(function()
-        return RequestFishBite:InvokeServer()
-    end)
-    if biteSuccess then
-        print("[F&M Remote Farm] Bite Success. Result: " .. tostring(biteResult))
-    else
-        warn("[F&M Remote Farm] Bite Failed: " .. tostring(biteResult))
-    end
-
+    pcall(function() RequestFishBite:InvokeServer() end)
     task.wait(0.5)
 
     if not autoFishingRemote then return end
 
     -- 4. Start Pulling
     print("[F&M Remote Farm] 4. Invoking StartPulling...")
-    local pullSuccess, pullResult = pcall(function()
-        return StartPulling:InvokeServer()
-    end)
+    local pullSuccess, pullResult = pcall(function() return StartPulling:InvokeServer() end)
 
-    if not pullSuccess then
-        warn("[F&M Remote Farm] StartPulling failed: " .. tostring(pullResult))
-        return
-    else
-        print("[F&M Remote Farm] StartPulling Success. Raw Return: " .. tostring(pullResult))
+    -- Attempt to find UUID from local memory/Knit if remote returns nil
+    local uuid = nil
+    if pullSuccess then
+        uuid = extractUUID(pullResult)
     end
 
-    local uuid = extractUUID(pullResult)
+    -- Knit Controller Hook Fallback
     if not uuid then
-        warn("[F&M Remote Farm] Gagal mendapatkan UUID Sesi dari server! (Mungkin status return berbeda)")
-        -- Try backup: check if pullResult is table and dump it
-        if type(pullResult) == "table" then
-            for k, v in pairs(pullResult) do
-                print("  [" .. tostring(k) .. "] = " .. tostring(v) .. " (" .. typeof(v) .. ")")
+        print("[F&M Remote Farm] Fetching UUID from local Knit controllers...")
+        local Knit = getKnitClient()
+        if Knit then
+            local controllers = {"FishingController", "FishingRewardController", "FishingMinigameController"}
+            for _, ctrlName in ipairs(controllers) do
+                local success, ctrl = pcall(function() return Knit.GetController(ctrlName) end)
+                if success and ctrl then
+                    -- Look for uuid, sessionId, or similar properties
+                    for key, val in pairs(ctrl) do
+                        if type(key) == "string" and (key:lower():find("uuid") or key:lower():find("session") or key:lower():find("id")) then
+                            if type(val) == "string" and #val == 36 then
+                                uuid = val
+                                print("[F&M Knit Hook] Found UUID in controller (" .. ctrlName .. "." .. key .. "): " .. uuid)
+                                break
+                            elseif type(val) == "table" then
+                                local temp = extractUUID(val)
+                                if temp then
+                                    uuid = temp
+                                    print("[F&M Knit Hook] Found UUID in controller table (" .. ctrlName .. "." .. key .. "): " .. uuid)
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+                if uuid then break end
             end
         end
-        return
     end
 
-    print("[F&M Remote Farm] Got Session UUID: " .. uuid)
+    if not uuid then
+        warn("[F&M Remote Farm] Gagal mendapatkan UUID. Mencoba menembak dengan UUID acak...")
+        -- In some games, you can generate a random UUID and the server accepts it if session checks are loose
+        uuid = game:GetService("HttpService"):GenerateGUID(false):lower()
+    end
+
+    print("[F&M Remote Farm] Active Session UUID: " .. tostring(uuid))
     task.wait(0.1)
 
     -- 5. Spam FishingPullInput
@@ -396,13 +372,9 @@ local function runRemoteFishingCycle()
 
     task.wait(0.5)
 
-    -- 6. Stop Fishing to clean up
-    print("[F&M Remote Farm] 6. Closing Session (StopFishing)...")
-    pcall(function()
-        StopFishing:InvokeServer()
-    end)
-
-    print("[F&M Remote Farm] Cycle completed successfully!")
+    -- 6. Stop Fishing
+    pcall(function() StopFishing:InvokeServer() end)
+    print("[F&M Remote Farm] Cycle completed.")
 end
 
 -- Remote Farm Loop Thread
@@ -414,7 +386,7 @@ task.spawn(function()
             if not status then
                 warn("[F&M Remote Farm Loop Error]: " .. tostring(err))
             end
-            task.wait(1) -- Cool down between casts
+            task.wait(1)
         end
     end
 end)
@@ -541,35 +513,24 @@ task.spawn(function()
     end
 end)
 
--- Auto Tap Boss Loop
+-- Auto Tap Boss Loop (Uses PlayerTap Remote)
 task.spawn(function()
     while true do
         task.wait(bossTapDelay)
         if autoTapBoss then
             pcall(function()
-                for _, desc in ipairs(Workspace:GetDescendants()) do
-                    if desc:IsA("ClickDetector") then
-                        if fireclickdetector then
-                            for i = 1, 10 do
-                                fireclickdetector(desc, 0)
-                            end
-                        end
+                local PlayerTap = findKnitRemote("FishingRewardService", "PlayerTap")
+                if PlayerTap then
+                    -- Send multiple taps per frame to abuse the boss HP
+                    for i = 1, 50 do
+                        PlayerTap:InvokeServer()
                     end
-                end
-                
-                for _, gui in ipairs(LP.PlayerGui:GetDescendants()) do
-                    if gui:IsA("TextButton") or gui:IsA("ImageButton") then
-                        if gui.Visible and gui.Active then
-                            local name = gui.Name:lower()
-                            local text = (gui:IsA("TextButton") and gui.Text:lower()) or ""
-                            
-                            if name:find("boss") or name:find("raid") or name:find("tap") or name:find("click") or
-                               text:find("boss") or text:find("raid") or text:find("tap") or text:find("click") then
-                                
-                                for i = 1, 20 do
-                                    firesignal(gui.MouseButton1Click)
-                                    firesignal(gui.Activated)
-                                end
+                else
+                    -- Fallback to UI / click detector
+                    for _, desc in ipairs(Workspace:GetDescendants()) do
+                        if desc:IsA("ClickDetector") then
+                            if fireclickdetector then
+                                for i = 1, 10 do fireclickdetector(desc, 0) end
                             end
                         end
                     end
@@ -593,9 +554,41 @@ TabDeveloper:CreateToggle({
         remoteSpyEnabled = value
         Rayfield:Notify({
             Title = "Remote Spy",
-            Content = value and "Remote Spy Enabled! Check Delta/F9 Console." or "Remote Spy Disabled.",
+            Content = value and "Remote Spy Enabled! Check Console." or "Remote Spy Disabled.",
             Duration = 3
         })
+    end
+})
+
+TabDeveloper:CreateButton({
+    Name = "Scan Knit Client Controllers",
+    Callback = function()
+        print("=== KNIT CONTROLLER SCAN ===")
+        local Knit = getKnitClient()
+        if not Knit then
+            print("Knit framework not found client-side!")
+            return
+        end
+        if not Knit.Started then
+            print("Knit is not started yet.")
+        end
+        
+        local count = 0
+        for name, controller in pairs(Knit.Controllers or {}) do
+            count = count + 1
+            print("Controller #" .. count .. ": " .. name)
+            for k, v in pairs(controller) do
+                if type(v) == "function" then
+                    print("  Method: " .. k)
+                elseif type(v) == "string" or type(v) == "number" or type(v) == "boolean" then
+                    print("  Property: " .. k .. " = " .. tostring(v))
+                elseif type(v) == "table" then
+                    print("  Table Property: " .. k)
+                end
+            end
+        end
+        print("=== SCAN COMPLETE ===")
+        Rayfield:Notify({Title = "Knit Scan", Content = "Knit scan finished. Check console!", Duration = 3})
     end
 })
 
