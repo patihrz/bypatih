@@ -2274,7 +2274,7 @@ local function clickShopButtonsToSell()
     
     -- 3. Tutup shop UI
     task.wait(0.2)
-    clickButtonByKeywords({"close"}) or clickButtonByKeywords({"exit"}) or clickButtonByKeywords({"tutup"})
+    local _ = clickButtonByKeywords({"close"}) or clickButtonByKeywords({"exit"}) or clickButtonByKeywords({"tutup"})
     
     return sold or clickedAny
 end
