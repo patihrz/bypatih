@@ -42,6 +42,7 @@ local tapDelay = 0.05
 
 -- Remote Farming States
 local autoFishingRemote = false
+local autoCatchAssist = false
 local rodNameInput = "Fishingrod_Losi"
 local floaterNameInput = "Floater_Doll"
 
@@ -215,6 +216,18 @@ TabFishing:CreateToggle({
     Flag = "AutoFishingRemote",
     Callback = function(value)
         autoFishingRemote = value
+    end
+})
+
+TabFishing:CreateToggle({
+    Name = "Auto Catch Assist (Manual/AFK)",
+    CurrentValue = false,
+    Flag = "AutoCatchAssist",
+    Callback = function(value)
+        autoCatchAssist = value
+        if value then
+            print("[F&M Assist] Enabled. Use with game's AFK mode or fish manually!")
+        end
     end
 })
 
@@ -460,6 +473,39 @@ task.spawn(function()
                 warn("[F&M Remote Farm Loop Error]: " .. tostring(err))
             end
             task.wait(1)
+        end
+    end
+end)
+
+-- Auto Catch Assist Loop Thread
+local lastAssistId = nil
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if autoCatchAssist then
+            local castId = LP:GetAttribute("FishingCastId")
+            if castId and castId ~= "" and castId ~= lastAssistId then
+                lastAssistId = castId
+                print("[F&M Assist] New bite detected! Active Session ID: " .. tostring(castId))
+                
+                -- Jeda sesaat agar status server siap menerima input tarikan
+                task.wait(0.3)
+                
+                local FishingPullInput = findKnitRemote("FishingRewardService", "FishingPullInput")
+                if FishingPullInput then
+                    print("[F&M Assist] Spamming tap inputs to catch instantly...")
+                    for i = 1, 60 do
+                        if not autoCatchAssist then break end
+                        pcall(function()
+                            FishingPullInput:InvokeServer(castId, "tap")
+                        end)
+                        task.wait(0.01)
+                    end
+                    print("[F&M Assist] Caught!")
+                else
+                    warn("[F&M Assist] FishingPullInput remote not found!")
+                end
+            end
         end
     end
 end)
