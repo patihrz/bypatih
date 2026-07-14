@@ -188,6 +188,58 @@ local function extractFishName(data)
     return nil
 end
 
+-- Cari posisi air di depan karakter menggunakan raycast
+-- Mencoba berbagai sudut ke bawah untuk menemukan air/void
+local function getWaterTarget(origin)
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        return origin + Vector3.new(0, -5, -15)
+    end
+
+    local lookVec = hrp.CFrame.LookVector
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {char}
+
+    -- Coba raycast ke depan-bawah dari berbagai jarak
+    local distances = {15, 12, 18, 10, 20, 8}
+    local downAngles = {-0.5, -0.7, -0.3, -0.9, -0.2}
+
+    for _, dist in ipairs(distances) do
+        for _, downAngle in ipairs(downAngles) do
+            -- Arah: forward + down
+            local dir = (lookVec + Vector3.new(0, downAngle, 0)).Unit
+            local startPos = origin + Vector3.new(0, 2, 0) -- Sedikit di atas HRP
+            local result = workspace:Raycast(startPos, dir * (dist + 10), raycastParams)
+
+            if result then
+                local hit = result.Instance
+                local hitName = hit.Name:lower()
+                local matName = tostring(result.Material):lower()
+
+                -- Cek apakah hit water/terrain
+                if result.Material == Enum.Material.Water or
+                   hitName:find("water") or hitName:find("ocean") or hitName:find("sea") or hitName:find("lake") or
+                   matName:find("water") then
+                    -- Posisi di atas permukaan air sedikit
+                    return result.Position + Vector3.new(0, 0.3, 0)
+                end
+            else
+                -- Tidak ada hit (void) = kemungkinan air/laut terbuka
+                -- Target: arahkan ke titik di depan-bawah sejauh dist
+                local targetPos = origin + (lookVec * dist) + Vector3.new(0, -3, 0)
+                return targetPos
+            end
+        end
+    end
+
+    -- Fallback: lempar lurus ke depan sejauh 15 studs, turun 3
+    return origin + (lookVec * 15) + Vector3.new(0, -3, 0)
+end
+
+
+
 -- Robust Knit Remote Lookup
 local function findKnitRemote(serviceName, remoteName)
     local rep = game:GetService("ReplicatedStorage")
@@ -490,9 +542,23 @@ local function runBlatantFishingCycle()
     if not hrp then return end
 
     local origin = hrp.Position
-    local target = getWaterTarget(origin)
+    -- Cari target posisi air yang valid
+    -- Prioritas 1: Baca posisi floater aktual yang sudah ada di workspace (paling akurat!)
+    local target = nil
+    local floaterInWorld = workspace:FindFirstChild(activeFloaterName, true)
+    if floaterInWorld and floaterInWorld:IsA("BasePart") then
+        target = floaterInWorld.Position
+        print("[F&M Blatant] Target dari floater di workspace: " .. tostring(target))
+    end
+    -- Prioritas 2: Raycast ke air
+    if not target then
+        target = getWaterTarget(origin)
+        print("[F&M Blatant] Target dari raycast: " .. tostring(target))
+    end
+
     local floatConfig = {LightInfluence=0, FaceCamera=true, Color=Color3.new(0.94,0.31,1), Transparency=0.02, LightEmission=1, Width=0.24}
     local oldCastId = LP:GetAttribute("FishingCastId") or ""
+
 
     -- ================================================================
     -- Pasang SEMUA listener server events sebelum melempar agar tidak miss
