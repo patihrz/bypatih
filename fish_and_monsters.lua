@@ -1297,6 +1297,7 @@ LP.CharacterAdded:Connect(function(char)
     end
 end)
 
+
 -- Infinite Jump Hook
 game:GetService("UserInputService").JumpRequest:Connect(function()
     if infiniteJump then
@@ -1306,6 +1307,114 @@ game:GetService("UserInputService").JumpRequest:Connect(function()
         end
     end
 end)
+
+----------------------------------------------------
+-- TREASURE CHEST SECTION
+----------------------------------------------------
+TabPlayer:CreateSection("Treasure Chest")
+
+-- Helper: scan semua attachment CHEST di workspace (semua map)
+local function findAllChestAttachments()
+    local results = {}
+    local function scan(instance)
+        for _, child in ipairs(instance:GetChildren()) do
+            if child:IsA("Attachment") and child.Name:match("^CHEST_") then
+                table.insert(results, child.Name)
+            end
+            scan(child)
+        end
+    end
+    scan(workspace)
+    return results
+end
+
+-- Helper: dapatkan RequestOpenChest remote
+local function getOpenChestRemote()
+    local pkgs = ReplicatedStorage:FindFirstChild("Packages")
+    if not pkgs then return nil end
+    local idx = pkgs:FindFirstChild("_Index")
+    if not idx then return nil end
+    for _, pkg in ipairs(idx:GetChildren()) do
+        local knit = pkg:FindFirstChild("knit")
+        if knit then
+            local services = knit:FindFirstChild("Services")
+            if services then
+                local treasureSvc = services:FindFirstChild("TreasureService")
+                if treasureSvc then
+                    local rf = treasureSvc:FindFirstChild("RF")
+                    if rf then
+                        local remote = rf:FindFirstChild("RequestOpenChest")
+                        if remote then return remote end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+TabPlayer:CreateButton({
+    Name = "Open All Chests (Scan Map)",
+    Callback = function()
+        local remote = getOpenChestRemote()
+        if not remote then
+            Rayfield:Notify({Title = "Chest Error", Content = "RequestOpenChest remote tidak ditemukan!", Duration = 4})
+            warn("[F&M Chest] RequestOpenChest remote tidak ditemukan!")
+            return
+        end
+
+        local chests = findAllChestAttachments()
+        if #chests == 0 then
+            Rayfield:Notify({Title = "Chest", Content = "Tidak ada chest ditemukan di map ini.", Duration = 4})
+            print("[F&M Chest] Tidak ada attachment CHEST_ ditemukan di workspace.")
+            return
+        end
+
+        print("[F&M Chest] Ditemukan " .. #chests .. " chest, mulai open...")
+        Rayfield:Notify({
+            Title = "Chest Found!",
+            Content = "Ditemukan " .. #chests .. " chest. Sedang dibuka...",
+            Duration = 4
+        })
+
+        local opened = 0
+        local failed = 0
+        for _, chestName in ipairs(chests) do
+            local ok, result = pcall(function()
+                return remote:InvokeServer(chestName)
+            end)
+            if ok then
+                opened = opened + 1
+                print("[F&M Chest] Opened: " .. chestName .. " | result: " .. tostring(result))
+            else
+                failed = failed + 1
+                print("[F&M Chest] Failed: " .. chestName .. " | err: " .. tostring(result))
+            end
+            task.wait(0.3) -- Delay antar chest agar tidak rate-limit
+        end
+
+        local msg = "Selesai! Opened: " .. opened
+        if failed > 0 then msg = msg .. " | Failed: " .. failed end
+        Rayfield:Notify({Title = "Chest Done!", Content = msg, Duration = 6})
+        print("[F&M Chest] " .. msg)
+    end
+})
+
+TabPlayer:CreateButton({
+    Name = "Scan Chest Count (Debug)",
+    Callback = function()
+        local chests = findAllChestAttachments()
+        print("[F&M Chest] Total chest di map: " .. #chests)
+        for i, name in ipairs(chests) do
+            print("  [" .. i .. "] " .. name)
+        end
+        Rayfield:Notify({
+            Title = "Chest Scan",
+            Content = "Ditemukan " .. #chests .. " chest. Lihat console untuk detail.",
+            Duration = 4
+        })
+    end
+})
 
 print("[F&M] Script fully initialized! Load config or customize toggles.")
 Rayfield:Notify({
