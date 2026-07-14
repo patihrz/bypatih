@@ -479,8 +479,13 @@ local function runBlatantFishingCycle()
 
     -- StartPulling
     pcall(function() StartPulling:InvokeServer() end)
+    task.wait(0.1) -- beri waktu server siap
 
-    -- BLATANT: spam 30 tap PARALEL serentak (tanpa delay)
+    -- "begin" dulu (dari log Cobalt: FishingPullInput pertama pakai "begin")
+    pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
+    task.wait(0.05)
+
+    -- Lalu spam 30 "tap" PARALEL serentak
     for i = 1, 30 do
         if not autoBlatantFishing then break end
         task.spawn(function()
@@ -488,7 +493,7 @@ local function runBlatantFishingCycle()
         end)
     end
 
-    task.wait(0.15)
+    task.wait(0.5) -- tunggu server proses semua tap sebelum stop
     pcall(function() StopFishing:InvokeServer() end)
 end
 
