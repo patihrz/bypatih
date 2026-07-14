@@ -636,11 +636,11 @@ local function runBlatantFishingCycle()
     -- ThrowFloater + ConfirmFloatingCast
     -- ================================================================
     pcall(function() ThrowFloater:InvokeServer(origin, target, activeRodName, activeFloaterName, floatConfig, 2.5) end)
-    task.wait(0.5)
+    task.wait(0.25) -- Dipercepat dari 0.5
     if not autoBlatantFishing then disconnectAll() return end
 
     pcall(function() ConfirmFloatingCast:InvokeServer(target) end)
-    task.wait(0.2)
+    task.wait(0.05) -- Dipercepat dari 0.2
 
     -- ================================================================
     -- RequestFishBite — trigger server untuk assign ikan
@@ -665,14 +665,14 @@ local function runBlatantFishingCycle()
     -- Fallback attribute
     if not uuid then
         local w = 0
-        while w < 3 do
+        while w < 2 do -- Dipercepat dari 3
             if not autoBlatantFishing then disconnectAll() return end
             local castId = LP:GetAttribute("FishingCastId")
             if castId and castId ~= "" and castId ~= oldCastId then
                 uuid = castId
                 break
             end
-            task.wait(0.1); w = w + 0.1
+            task.wait(0.05); w = w + 0.05
         end
     end
 
@@ -684,68 +684,63 @@ local function runBlatantFishingCycle()
 
     print("[F&M Blatant] Bite! UUID: " .. tostring(uuid))
 
-    -- Tunggu FishingPullState dari server (max 2s) — tanda server siap untuk StartPulling
+    -- Tunggu FishingPullState dari server (max 1s) — tanda server siap untuk StartPulling
     local wsrv = 0
-    while wsrv < 2 and not serverReadyForPull do
-        task.wait(0.05); wsrv = wsrv + 0.05
-    end
-    if serverReadyForPull then
-        print("[F&M Blatant] Server kirim FishingPullState — siap untuk StartPulling!")
-    else
-        print("[F&M Blatant] FishingPullState tidak diterima dalam 2s, lanjut StartPulling...")
+    while wsrv < 1 and not serverReadyForPull do -- Dipercepat dari 2s
+        task.wait(0.02); wsrv = wsrv + 0.02
     end
 
     -- ================================================================
     -- StartPulling + taps
     -- ================================================================
     pcall(function() StartPulling:InvokeServer() end)
-    task.wait(0.1)
+    task.wait(0.02) -- Dipercepat dari 0.1
 
     pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
-    task.wait(0.1)
+    task.wait(0.02) -- Dipercepat dari 0.1
 
-    -- Taps dengan delay wajar (150ms) menyerupai kecepatan tap manusia untuk menghindari rate-limit
+    -- Taps dengan delay cepat (80ms) untuk kecepatan maksimal tapi tetap aman dari rate limit
     for i = 1, 15 do
         if not autoBlatantFishing then break end
+        if caughtFishName then 
+            print("[F&M Blatant] Ikan terdeteksi tertangkap lebih awal di tap #" .. i .. ", menghentikan tap loop.")
+            break 
+        end
         local ok, res = pcall(function()
             return FishingPullInput:InvokeServer(uuid, "tap")
         end)
-        print("[F&M Blatant] Tap #" .. i .. " sent. Success: " .. tostring(ok) .. " | Return: " .. tostring(res))
-        if ok and type(res) == "table" then
-            dumpTable(res, "    ")
-        end
-        task.wait(0.15)
+        task.wait(0.08) -- Dipercepat dari 0.15
     end
 
 
-    print("[F&M Blatant] Taps sent. Menunggu FishCaught / FishingSuccess (max 4s)...")
+    print("[F&M Blatant] Taps sent. Menunggu FishCaught / FishingSuccess (max 3s)...")
 
-    -- Tunggu max 4 detik
+    -- Tunggu max 3 detik jika ikan belum terdeteksi tertangkap
     local wt = 0
-    while wt < 4 and not caughtFishName do
+    while wt < 3 and not caughtFishName do
         task.wait(0.05); wt = wt + 0.05
     end
 
     disconnectAll()
 
     if not caughtFishName then
-        print("[F&M Blatant] Tidak ada event fish catch dalam 4s. Fallback NurseShark.")
+        print("[F&M Blatant] Tidak ada event fish catch. Fallback NurseShark.")
         caughtFishName = "NurseShark"
     else
         print("[F&M Blatant] Ikan tertangkap: " .. caughtFishName)
     end
 
-    -- Urutan: RequestPreview → StopFishing → ReleasePreview x2
+    -- Urutan claim: RequestPreview → StopFishing → ReleasePreview x2 (dengan delay minimal 0.05s)
     if RequestPreview then
         print("[F&M Blatant] RequestPreview: " .. caughtFishName)
         pcall(function() RequestPreview:InvokeServer("FishModels", caughtFishName, nil) end)
     end
-    task.wait(0.15)
+    task.wait(0.05) -- Dipercepat dari 0.15
     pcall(function() StopFishing:InvokeServer() end)
-    task.wait(0.15)
+    task.wait(0.05) -- Dipercepat dari 0.15
     if ReleasePreview then
         pcall(function() ReleasePreview:InvokeServer(caughtFishName, nil) end)
-        task.wait(0.05)
+        task.wait(0.02)
         pcall(function() ReleasePreview:InvokeServer(caughtFishName, nil) end)
     end
     print("[F&M Blatant] Cycle completed!")
