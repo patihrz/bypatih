@@ -674,6 +674,7 @@ local function runBlatantFishingCycle()
         pcall(function() ReleasePreview:InvokeServer(caughtFishName, nil) end)
     end
     print("[F&M Blatant] Cycle completed!")
+end
 
 -- Blatant Fishing Loop Thread
 
