@@ -497,23 +497,23 @@ local function runBlatantFishingCycle()
     pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
     task.wait(0.05)
 
-    -- Spam 30 "tap" paralel serentak
-    for i = 1, 30 do
+    -- Spam 12 "tap" inputs sequentially with 0.015s delay to avoid same-frame rate-limiting
+    for i = 1, 12 do
         if not autoBlatantFishing then break end
-        task.spawn(function()
-            pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
-        end)
+        pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
+        task.wait(0.015)
     end
 
-    task.wait(0.5) -- tunggu server proses
-    pcall(function() StopFishing:InvokeServer() end)
-    print("[F&M Blatant] Caught!")
+    print("[F&M Blatant] Finished sending taps.")
+    -- Hapus StopFishing di sini agar server menyelesaikan tangkapan secara alami.
+    -- Jika dipanggil StopFishing, server akan membatalkan sesi dan ikan tidak didapat.
+    task.wait(1.5) -- Beri waktu client memproses animasi catch
 end
 
 -- Blatant Fishing Loop Thread
 task.spawn(function()
     while true do
-        task.wait(0.1)
+        task.wait(0.5)
         if autoBlatantFishing then
             local ok, err = pcall(runBlatantFishingCycle)
             if not ok then
@@ -532,7 +532,6 @@ task.spawn(function()
     while true do
         task.wait(0.05)
         if autoCatchAssist then
-            -- Cache remote sekali saja
             if not cachedAssistPullInput then
                 cachedAssistPullInput = findKnitRemote("FishingRewardService", "FishingPullInput")
             end
@@ -544,13 +543,14 @@ task.spawn(function()
                     -- "begin" dulu (sesuai urutan game asli)
                     pcall(function() cachedAssistPullInput:InvokeServer(castId, "begin") end)
                     task.wait(0.05)
-                    -- Lalu spam 30 "tap" paralel serentak
-                    for i = 1, 30 do
-                        task.spawn(function()
-                            pcall(function() cachedAssistPullInput:InvokeServer(castId, "tap") end)
-                        end)
+                    
+                    -- Spam 12 "tap" input secara sekuensial dengan delay 15ms
+                    for i = 1, 12 do
+                        if not autoCatchAssist then break end
+                        pcall(function() cachedAssistPullInput:InvokeServer(castId, "tap") end)
+                        task.wait(0.015)
                     end
-                    print("[F&M Assist] Caught!")
+                    print("[F&M Assist] Taps sent!")
                 end
             end
         else
@@ -824,23 +824,20 @@ task.spawn(function()
             end
 
             if cachedPlayerTap and activeBossName then
-                -- Kirim 20 InvokeServer paralel
-                for i = 1, 20 do
+                -- Kirim 12 tap sekuensial dengan jeda 15ms untuk mencegah proteksi spam server
+                for i = 1, 12 do
                     if not autoTapBoss then break end
                     task.spawn(function()
                         pcall(function()
                             cachedPlayerTap:InvokeServer(activeBossName)
                         end)
                     end)
+                    task.wait(0.015)
                 end
             elseif not cachedPlayerTap then
-                -- Reset cache agar dicoba lagi
                 cachedPlayerTap = nil
-            elseif not activeBossName then
-                -- Jangan spam warn, cukup sekali per 5 detik
             end
         else
-            -- Reset cache saat toggle dimatikan
             cachedPlayerTap = nil
         end
     end
