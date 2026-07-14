@@ -138,36 +138,58 @@ local function castRod()
 end
 
 -- Dismiss Caught Fish Banner (Tap to continue)
+local function isGuiVisible(gui)
+    local current = gui
+    while current do
+        if current:IsA("GuiObject") and not current.Visible then
+            return false
+        end
+        current = current.Parent
+    end
+    return true
+end
+
 local function dismissCaughtBanner()
     pcall(function()
         for _, gui in ipairs(LP.PlayerGui:GetDescendants()) do
-            if gui:IsA("TextButton") or gui:IsA("ImageButton") or gui:IsA("TextLabel") then
+            if isGuiVisible(gui) then
+                local button = nil
                 local text = ""
-                pcall(function() text = gui.Text:lower() end)
+                pcall(function() text = gui:IsA("TextLabel") and gui.Text:lower() or (gui:IsA("TextButton") and gui.Text:lower() or "") end)
                 local name = gui.Name:lower()
-                
-                if text:find("continue") or text:find("tap to") or name:find("continue") or name:find("dismiss") then
-                    local button = nil
+
+                -- Cocokkan TextLabel atau Button yang berisi "continue" atau "tap to"
+                if text:find("continue") or text:find("tap to") or name:find("continue") or name:find("dismiss") or name:find("close") then
                     if gui:IsA("TextButton") or gui:IsA("ImageButton") then
                         button = gui
                     elseif gui.Parent and (gui.Parent:IsA("TextButton") or gui.Parent:IsA("ImageButton")) then
                         button = gui.Parent
                     end
-                    
-                    if button and button.Visible then
-                        if typeof(firesignal) == "function" then
-                            pcall(firesignal, button.MouseButton1Click)
-                            pcall(firesignal, button.Activated)
-                        else
-                            pcall(function() button.MouseButton1Click:Fire() end)
-                            pcall(function() button.Activated:Fire() end)
-                        end
+                end
+                
+                -- Fallback: Cari button apa saja yang posisinya menutupi layar atau berada di Caught GUI
+                if not button and (gui:IsA("TextButton") or gui:IsA("ImageButton")) and gui.Active then
+                    local pathLower = gui:GetFullName():lower()
+                    if pathLower:find("caught") or pathLower:find("showcase") or pathLower:find("preview") or 
+                       pathLower:find("reward") or pathLower:find("success") or pathLower:find("continue") then
+                        button = gui
+                    end
+                end
+                
+                if button then
+                    if typeof(firesignal) == "function" then
+                        pcall(firesignal, button.MouseButton1Click)
+                        pcall(firesignal, button.Activated)
+                    else
+                        pcall(function() button.MouseButton1Click:Fire() end)
+                        pcall(function() button.Activated:Fire() end)
                     end
                 end
             end
         end
     end)
 end
+
 
 
 -- Find Raid Orb in workspace
@@ -749,7 +771,7 @@ local function runBlatantFishingCycle()
     pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
     task.wait(0.02) -- Dipercepat dari 0.1
 
-    -- Taps dengan delay cepat (80ms) untuk kecepatan maksimal tapi tetap aman dari rate limit
+    -- Taps dengan delay sangat cepat (60ms) untuk kecepatan maksimal tapi tetap aman dari rate limit
     for i = 1, 15 do
         if not autoBlatantFishing then break end
         if caughtFishName then 
@@ -759,16 +781,16 @@ local function runBlatantFishingCycle()
         local ok, res = pcall(function()
             return FishingPullInput:InvokeServer(uuid, "tap")
         end)
-        task.wait(0.08) -- Dipercepat dari 0.15
+        task.wait(0.06) -- Dipercepat dari 0.08
     end
 
 
-    print("[F&M Blatant] Taps sent. Menunggu FishCaught / FishingSuccess (max 3s)...")
+    print("[F&M Blatant] Taps sent. Menunggu FishCaught / FishingSuccess (max 1.5s)...")
 
-    -- Tunggu max 3 detik jika ikan belum terdeteksi tertangkap
+    -- Tunggu max 1.5 detik jika ikan belum terdeteksi tertangkap (dipercepat dari 3s)
     local wt = 0
-    while wt < 3 and not caughtFishName do
-        task.wait(0.05); wt = wt + 0.05
+    while wt < 1.5 and not caughtFishName do
+        task.wait(0.02); wt = wt + 0.02
     end
 
     disconnectAll()
@@ -780,36 +802,17 @@ local function runBlatantFishingCycle()
         print("[F&M Blatant] Ikan tertangkap: " .. caughtFishName)
     end
 
-    -- Urutan claim: RequestPreview → StopFishing → ReleasePreview x2 (dengan delay minimal 0.05s)
-    if RequestPreview then
-        print("[F&M Blatant] RequestPreview: " .. caughtFishName)
-        pcall(function() RequestPreview:InvokeServer("FishModels", caughtFishName, nil) end)
-    end
-    task.wait(0.05) -- Dipercepat dari 0.15
+    -- Urutan claim: Lewati RequestPreview & ReleasePreview sepenuhnya agar langsung masuk inventory (SPAM MODE!)
     pcall(function() StopFishing:InvokeServer() end)
-    task.wait(0.05) -- Dipercepat dari 0.15
-    if ReleasePreview then
-        pcall(function() ReleasePreview:InvokeServer(caughtFishName, nil) end)
-        task.wait(0.02)
-        pcall(function() ReleasePreview:InvokeServer(caughtFishName, nil) end)
-    end
-
-    -- Klik banner overlay 'Tap to continue' secara instan agar tidak nunggu lama
-    task.spawn(function()
-        for i = 1, 10 do
-            dismissCaughtBanner()
-            task.wait(0.05)
-        end
-    end)
-
+    task.wait(0.02)
+    
     print("[F&M Blatant] Cycle completed!")
 end
 
--- Blatant Fishing Loop Thread
-
+-- Blatant Fishing Loop Thread (Jeda minimal antar siklus)
 task.spawn(function()
     while true do
-        task.wait(0.5)
+        task.wait(0.05) -- Dipercepat dari 0.5s agar langsung lempar ulang
         if autoBlatantFishing then
             local ok, err = pcall(runBlatantFishingCycle)
             if not ok then
@@ -819,6 +822,17 @@ task.spawn(function()
         end
     end
 end)
+
+-- Background Auto Clicker untuk Banner Ikan / Keluar (Berjalan terus-menerus real-time)
+task.spawn(function()
+    while true do
+        task.wait(0.05) -- Cek setiap 50ms
+        if autoBlatantFishing or autoFishingRemote or autoCatchAssist then
+            dismissCaughtBanner()
+        end
+    end
+end)
+
 
 -- Auto Catch Assist Loop Thread
 -- Dipakai dengan AFK mode game — jangan jalankan bersama Blatant Mode!
