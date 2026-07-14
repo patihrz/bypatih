@@ -1252,12 +1252,40 @@ task.spawn(function()
                 end
             end
 
-            if cachedPlayerTap and activeBossName then
-                -- Kirim satu tap per loop cycle untuk mencegah proteksi spam server
-                -- Kecepatan spam dikontrol penuh oleh user via slider bossTapDelay
+            if cachedPlayerTap then
+                local targetName = activeBossName
+                if not targetName then
+                    -- Fallback: Cari model terdekat dari player di workspace
+                    local char = LP.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        local nearestModel = nil
+                        local nearestDist = 150
+                        for _, obj in ipairs(workspace:GetChildren()) do
+                            if obj:IsA("Model") and obj ~= char then
+                                local isPlayer = Players:GetPlayerFromCharacter(obj)
+                                if not isPlayer then
+                                    local objPart = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
+                                    if objPart then
+                                        local d = (objPart.Position - hrp.Position).Magnitude
+                                        if d < nearestDist then
+                                            nearestModel = obj
+                                            nearestDist = d
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                        if nearestModel then
+                            targetName = nearestModel.Name
+                        end
+                    end
+                end
+
+                -- Kirim satu tap per loop cycle (tanpa blokir, selalu spam remote)
                 task.spawn(function()
                     pcall(function()
-                        cachedPlayerTap:InvokeServer(activeBossName)
+                        cachedPlayerTap:InvokeServer(targetName)
                     end)
                 end)
             end
