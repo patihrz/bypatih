@@ -295,12 +295,12 @@ TabFishing:CreateSlider({
 ----------------------------------------------------
 
 local function runRemoteFishingCycle()
-    local ThrowFloater = findKnitRemote("FishingReplicationService", "ThrowFloater")
+    local ThrowFloater        = findKnitRemote("FishingReplicationService", "ThrowFloater")
     local ConfirmFloatingCast = findKnitRemote("FishingReplicationService", "ConfirmFloatingCast")
-    local RequestFishBite = findKnitRemote("FishingReplicationService", "RequestFishBite")
-    local StartPulling = findKnitRemote("FishingReplicationService", "StartPulling")
-    local StopFishing = findKnitRemote("FishingReplicationService", "StopFishing")
-    local FishingPullInput = findKnitRemote("FishingRewardService", "FishingPullInput")
+    local RequestFishBite     = findKnitRemote("FishingRewardService",      "RequestFishBite")
+    local StartPulling        = findKnitRemote("FishingReplicationService", "StartPulling")
+    local StopFishing         = findKnitRemote("FishingReplicationService", "StopFishing")
+    local FishingPullInput    = findKnitRemote("FishingRewardService",      "FishingPullInput")
 
     if not (ThrowFloater and ConfirmFloatingCast and RequestFishBite and StartPulling and StopFishing and FishingPullInput) then
         warn("[F&M Remote Farm] Missing remotes!")
@@ -308,250 +308,122 @@ local function runRemoteFishingCycle()
     end
 
     equipRod()
-    task.wait(0.3)
-
     if not autoFishingRemote then return end
 
-    print("[F&M Remote Farm] Resetting fishing state...")
+    -- Reset state dulu
     pcall(function() StopFishing:InvokeServer() end)
-    task.wait(0.2)
+    task.wait(0.1)
 
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
     local origin = hrp.Position
-
     local lookOffset = hrp.CFrame.LookVector * 8
     local castPos = origin + lookOffset
     local waterY = nil
 
-    -- Raycast #1: hanya cari Terrain saja (material Water)
-    -- Ini memastikan lantai/platform tidak ikut terdeteksi
+    -- Hanya deteksi Terrain Water (ignore lantai/platform)
     local terrainParams = RaycastParams.new()
     terrainParams.FilterType = Enum.RaycastFilterType.Include
     terrainParams.FilterDescendantsInstances = {Workspace.Terrain}
     terrainParams.IgnoreWater = false
 
-    local terrainResult = Workspace:Raycast(
-        Vector3.new(castPos.X, origin.Y + 10, castPos.Z),
-        Vector3.new(0, -150, 0),
-        terrainParams
-    )
-    if terrainResult and terrainResult.Material == Enum.Material.Water then
-        waterY = terrainResult.Position.Y
-        print("[F&M Remote Farm] Water terrain detected at Y: " .. tostring(waterY))
-    end
-
-    -- Fallback: coba dari samping kiri/kanan jika lurus ke bawah terblokir
-    if not waterY then
-        for _, sideOffset in ipairs({Vector3.new(5,0,0), Vector3.new(-5,0,0), Vector3.new(0,0,5), Vector3.new(0,0,-5)}) do
-            local sidePos = castPos + sideOffset
-            local sideResult = Workspace:Raycast(
-                Vector3.new(sidePos.X, origin.Y + 10, sidePos.Z),
-                Vector3.new(0, -150, 0),
-                terrainParams
-            )
-            if sideResult and sideResult.Material == Enum.Material.Water then
-                waterY = sideResult.Position.Y
-                print("[F&M Remote Farm] Water found via side raycast at Y: " .. tostring(waterY))
-                break
-            end
+    local tr = Workspace:Raycast(Vector3.new(castPos.X, origin.Y+10, castPos.Z), Vector3.new(0,-150,0), terrainParams)
+    if tr and tr.Material == Enum.Material.Water then
+        waterY = tr.Position.Y
+    else
+        for _, s in ipairs({Vector3.new(5,0,0), Vector3.new(-5,0,0), Vector3.new(0,0,5), Vector3.new(0,0,-5)}) do
+            local r = Workspace:Raycast(Vector3.new(castPos.X+s.X, origin.Y+10, castPos.Z+s.Z), Vector3.new(0,-150,0), terrainParams)
+            if r and r.Material == Enum.Material.Water then waterY = r.Position.Y break end
         end
     end
-
-    -- Fallback terakhir: gunakan Y - 8 dari posisi karakter
-    if not waterY then
-        waterY = origin.Y - 8
-        warn("[F&M Remote Farm] Tidak bisa deteksi air, pakai fallback Y: " .. tostring(waterY))
-    end
+    waterY = waterY or (origin.Y - 8)
 
     local target = Vector3.new(castPos.X, waterY, castPos.Z)
 
-    -- 1. Throw Floater
-    print("[F&M Remote Farm] 1. Casting Floater...")
-    local floatConfig = {
-        LightInfluence = 0,
-        FaceCamera = true,
-        Color = Color3.new(0.94117647409439, 0.3098039329052, 1),
-        Transparency = 0.02,
-        LightEmission = 1,
-        Width = 0.24
-    }
+    -- 1. ThrowFloater
+    local floatConfig = {LightInfluence=0, FaceCamera=true, Color=Color3.new(0.94,0.31,1), Transparency=0.02, LightEmission=1, Width=0.24}
+    pcall(function() ThrowFloater:InvokeServer(origin, target, rodNameInput, floaterNameInput, floatConfig, 2.5) end)
+    task.wait(0.5) -- Minimum agar server register pelampung
 
+    if not autoFishingRemote then return end
+
+    -- 2. ConfirmFloatingCast (kirim posisi target pelampung)
+    pcall(function() ConfirmFloatingCast:InvokeServer(target) end)
+
+    -- 3. RequestFishBite LANGSUNG - blatant, skip delay nunggu bite
     local uuid = nil
-
-    local castSuccess, castResult = pcall(function() 
-        return ThrowFloater:InvokeServer(origin, target, rodNameInput, floaterNameInput, floatConfig, 2.5) 
+    local biteOk, biteData = pcall(function()
+        return RequestFishBite:InvokeServer(target + Vector3.new(0, 0.1, 0))
     end)
-    if castSuccess then
-        print("[F&M Remote Farm] ThrowFloater Result:")
-        dumpTable(castResult)
-        uuid = extractUUID(castResult)
-    end
-    task.wait(1.5)
-
-    if not autoFishingRemote then return end
-
-    -- 2. Confirm Floating Cast (server needs target Vector3 = pelampung position)
-    print("[F&M Remote Farm] 2. Confirming Cast...")
-    local confirmSuccess, confirmResult = pcall(function() 
-        return ConfirmFloatingCast:InvokeServer(target)
-    end)
-    if confirmSuccess then
-        print("[F&M Remote Farm] ConfirmFloatingCast Result:")
-        dumpTable(confirmResult)
-        if not uuid then uuid = extractUUID(confirmResult) end
+    if biteOk and type(biteData) == "table" then
+        -- SessionId ada langsung di response (terlihat di log console)
+        uuid = biteData.SessionId or biteData.sessionId or biteData.castId or extractUUID(biteData)
     end
 
-    -- Wait for bite
-    print("[F&M Remote Farm] Waiting for bite...")
-    task.wait(math.random(2, 4))
-
-    if not autoFishingRemote then return end
-
-    -- 3. Request Fish Bite (server needs target Vector3 = posisi ikan)
-    print("[F&M Remote Farm] 3. Requesting Fish Bite...")
-    local biteSuccess, biteResult = pcall(function()
-        -- Sedikit geser target biar posisi ikan != posisi pelampung persis
-        local fishPos = target + Vector3.new(0, 0.1, 0)
-        return RequestFishBite:InvokeServer(fishPos)
-    end)
-    if biteSuccess then
-        print("[F&M Remote Farm] RequestFishBite Result:")
-        dumpTable(biteResult)
-        if not uuid then uuid = extractUUID(biteResult) end
-    end
-    task.wait(0.5)
-
-    if not autoFishingRemote then return end
-
-    -- 4. Start Pulling
-    print("[F&M Remote Farm] 4. Invoking StartPulling...")
-    local pullSuccess, pullResult = pcall(function() 
-        return StartPulling:InvokeServer() 
-    end)
-    if pullSuccess then
-        print("[F&M Remote Farm] StartPulling Result:")
-        dumpTable(pullResult)
-        if not uuid then uuid = extractUUID(pullResult) end
-    end
-
-    -- LocalPlayer Attributes Scan Fallback
+    -- Fallback LP Attribute
     if not uuid then
-        for k, v in pairs(LP:GetAttributes()) do
-            if type(v) == "string" and (v:match("^%x+-%x+-%x+-%x+-%x+$") or #v == 36) then
-                uuid = v
-                print("[F&M Attribute Hook] Found UUID in LP Attribute (" .. k .. "): " .. uuid)
-                break
-            end
-        end
-    end
-
-    -- Character Attributes Scan Fallback
-    if not uuid and char then
-        for k, v in pairs(char:GetAttributes()) do
-            if type(v) == "string" and (v:match("^%x+-%x+-%x+-%x+-%x+$") or #v == 36) then
-                uuid = v
-                print("[F&M Attribute Hook] Found UUID in Character Attribute (" .. k .. "): " .. uuid)
-                break
-            end
-        end
-    end
-
-    -- Knit Controller Hook Fallback (Scan all controllers for UUID properties/values)
-    if not uuid then
-        print("[F&M Remote Farm] Fetching UUID from local Knit controllers...")
-        local Knit = getKnitClient()
-        if Knit then
-            for ctrlName, ctrl in pairs(Knit.Controllers or {}) do
-                pcall(function()
-                    for key, val in pairs(ctrl) do
-                        if type(val) == "string" and (val:match("^%x+-%x+-%x+-%x+-%x+$") or #val == 36) then
-                            uuid = val
-                            print("[F&M Knit Hook] Found UUID by value match in (" .. ctrlName .. "." .. key .. "): " .. uuid)
-                            break
-                        elseif type(val) == "table" then
-                            local temp = extractUUID(val)
-                            if temp then
-                                uuid = temp
-                                print("[F&M Knit Hook] Found UUID in table (" .. ctrlName .. "." .. key .. "): " .. uuid)
-                                break
-                            end
-                        end
-                    end
-                end)
-                if uuid then break end
-            end
-        end
+        uuid = LP:GetAttribute("FishingCastId")
     end
 
     if not uuid then
-        warn("[F&M Remote Farm] Gagal mendapatkan UUID. Mencoba menembak dengan UUID acak...")
-        uuid = game:GetService("HttpService"):GenerateGUID(false):lower()
+        warn("[F&M Remote Farm] UUID nil, skip cycle.")
+        return
     end
 
-    print("[F&M Remote Farm] Active Session UUID: " .. tostring(uuid))
-    task.wait(0.1)
+    print("[F&M Remote Farm] UUID: " .. tostring(uuid))
 
-    -- 5. Spam FishingPullInput
-    print("[F&M Remote Farm] 5. Tapping remote to catch fish...")
-    for i = 1, 60 do
+    -- 4. StartPulling
+    pcall(function() StartPulling:InvokeServer() end)
+
+    -- 5. BLATANT TAP SPAM — semua tap paralel serentak (30 coroutine)
+    -- progressPerTap=0.1, perlu ~8 tap saja, kita kirim 30 untuk jaminan
+    for i = 1, 30 do
         if not autoFishingRemote then break end
-        pcall(function()
-            FishingPullInput:InvokeServer(uuid, "tap")
+        task.spawn(function()
+            pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
         end)
-        task.wait(0.01)
     end
 
-    task.wait(0.5)
-
-    -- 6. Stop Fishing
+    task.wait(0.2)
     pcall(function() StopFishing:InvokeServer() end)
-    print("[F&M Remote Farm] Cycle completed.")
+    print("[F&M Remote Farm] Cycle done.")
 end
 
--- Remote Farm Loop Thread
+-- Remote Farm Loop Thread (tanpa delay antar cycle)
 task.spawn(function()
     while true do
-        task.wait(1)
+        task.wait(0.1)
         if autoFishingRemote then
-            local status, err = pcall(runRemoteFishingCycle)
-            if not status then
-                warn("[F&M Remote Farm Loop Error]: " .. tostring(err))
+            local ok, err = pcall(runRemoteFishingCycle)
+            if not ok then
+                warn("[F&M Remote Farm Error]: " .. tostring(err))
+                task.wait(1) -- brief cooldown hanya saat error
             end
-            task.wait(1)
         end
     end
 end)
 
--- Auto Catch Assist Loop Thread
+-- Auto Catch Assist Loop Thread (BLATANT: paralel tap, no delay)
 local lastAssistId = nil
 task.spawn(function()
     while true do
-        task.wait(0.1)
+        task.wait(0.05)
         if autoCatchAssist then
             local castId = LP:GetAttribute("FishingCastId")
             if castId and castId ~= "" and castId ~= lastAssistId then
                 lastAssistId = castId
-                print("[F&M Assist] New bite detected! Active Session ID: " .. tostring(castId))
-                
-                -- Jeda sesaat agar status server siap menerima input tarikan
-                task.wait(0.3)
-                
+                print("[F&M Assist] Bite! UUID: " .. tostring(castId))
                 local FishingPullInput = findKnitRemote("FishingRewardService", "FishingPullInput")
                 if FishingPullInput then
-                    print("[F&M Assist] Spamming tap inputs to catch instantly...")
-                    for i = 1, 60 do
-                        if not autoCatchAssist then break end
-                        pcall(function()
-                            FishingPullInput:InvokeServer(castId, "tap")
+                    -- Paralel spam 30 tap serentak
+                    for i = 1, 30 do
+                        task.spawn(function()
+                            pcall(function() FishingPullInput:InvokeServer(castId, "tap") end)
                         end)
-                        task.wait(0.01)
                     end
                     print("[F&M Assist] Caught!")
-                else
-                    warn("[F&M Assist] FishingPullInput remote not found!")
                 end
             end
         end
