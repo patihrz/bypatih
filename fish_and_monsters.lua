@@ -665,6 +665,68 @@ TabRaid:CreateButton({
     end
 })
 
+TabRaid:CreateButton({
+    Name = "[DEBUG] Boss Diagnosis (Check Console!)",
+    Callback = function()
+        print("=== BOSS TAP DIAGNOSIS ===")
+        print("activeBossName = " .. tostring(activeBossName))
+        print("cachedPlayerTap = " .. tostring(cachedPlayerTap))
+
+        -- Coba cari PlayerTap remote
+        local pt = findKnitRemote("BossFishEventService", "PlayerTap")
+        print("findKnitRemote result = " .. tostring(pt))
+        if pt then print("  Full path: " .. pt:GetFullName()) end
+
+        -- Scan semua model di workspace (10 level)
+        print("--- Scanning Workspace Models (pola _SM / Boss / Monster) ---")
+        local count = 0
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("Model") then
+                local n = obj.Name
+                if n:find("_SM") or n:lower():find("boss") or n:lower():find("monster") or n:lower():find("fish") then
+                    print("  Found: " .. n .. " (" .. obj:GetFullName() .. ")")
+                    count = count + 1
+                    if count >= 20 then print("  [... truncated]") break end
+                end
+            end
+        end
+        if count == 0 then print("  (tidak ada model relevan ditemukan)") end
+
+        -- Scan BossFishEventService langsung
+        print("--- Scanning BossFishEventService RF folder ---")
+        local rep = game:GetService("ReplicatedStorage")
+        local packages = rep:FindFirstChild("Packages")
+        if packages then
+            local index = packages:FindFirstChild("_Index")
+            if index then
+                for _, child in ipairs(index:GetChildren()) do
+                    if child.Name:find("sleitnick_knit") then
+                        local services = child:FindFirstChild("Services", true)
+                        if services then
+                            local bossService = services:FindFirstChild("BossFishEventService")
+                            if bossService then
+                                print("  BossFishEventService FOUND!")
+                                local rf = bossService:FindFirstChild("RF")
+                                if rf then
+                                    for _, r in ipairs(rf:GetChildren()) do
+                                        print("  RF/" .. r.Name .. " (" .. r.ClassName .. ")")
+                                    end
+                                else
+                                    print("  RF folder NOT FOUND!")
+                                end
+                            else
+                                print("  BossFishEventService NOT FOUND in " .. child.Name)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        print("=== END DIAGNOSIS ===")
+        Rayfield:Notify({Title = "Diagnosis Done!", Content = "Check console output!", Duration = 3})
+    end
+})
+
 TabRaid:CreateInput({
     Name = "Boss Name (Manual Input)",
     PlaceholderText = "Contoh: Windah_SM",
@@ -727,35 +789,49 @@ task.spawn(function()
     end
 end)
 
--- Auto Tap Boss Loop
--- Remote: BossFishEventService > RF > PlayerTap(bossName: string)
+-- Auto Tap Boss Loop (dengan cache remote + debug verbose)
+local cachedPlayerTap = nil
 task.spawn(function()
     while true do
         task.wait(bossTapDelay)
         if autoTapBoss then
-            -- Coba auto-detect boss name setiap loop jika belum ada
-            if not activeBossName then
-                activeBossName = findActiveBossName()
+            -- Cache PlayerTap sekali saja
+            if not cachedPlayerTap then
+                cachedPlayerTap = findKnitRemote("BossFishEventService", "PlayerTap")
+                if cachedPlayerTap then
+                    print("[F&M Boss] PlayerTap remote FOUND: " .. cachedPlayerTap:GetFullName())
+                else
+                    warn("[F&M Boss] PlayerTap remote NIL - BossFishEventService tidak ditemukan!")
+                end
             end
 
-            if activeBossName then
-                local PlayerTap = findKnitRemote("BossFishEventService", "PlayerTap")
-                if PlayerTap then
-                    -- InvokeServer dengan argument nama boss (sesuai log Cobalt)
-                    for i = 1, 20 do
-                        if not autoTapBoss then break end
-                        task.spawn(function()
-                            pcall(function()
-                                PlayerTap:InvokeServer(activeBossName)
-                            end)
-                        end)
-                    end
-                else
-                    warn("[F&M Boss] PlayerTap remote tidak ditemukan di BossFishEventService!")
+            -- Auto-detect boss name setiap loop jika belum ada
+            if not activeBossName then
+                activeBossName = findActiveBossName()
+                if activeBossName then
+                    print("[F&M Boss] Auto-detected boss name: " .. activeBossName)
                 end
-            else
-                warn("[F&M Boss] activeBossName nil! Gunakan tombol Scan Boss atau input manual.")
             end
+
+            if cachedPlayerTap and activeBossName then
+                -- Kirim 20 InvokeServer paralel
+                for i = 1, 20 do
+                    if not autoTapBoss then break end
+                    task.spawn(function()
+                        pcall(function()
+                            cachedPlayerTap:InvokeServer(activeBossName)
+                        end)
+                    end)
+                end
+            elseif not cachedPlayerTap then
+                -- Reset cache agar dicoba lagi
+                cachedPlayerTap = nil
+            elseif not activeBossName then
+                -- Jangan spam warn, cukup sekali per 5 detik
+            end
+        else
+            -- Reset cache saat toggle dimatikan
+            cachedPlayerTap = nil
         end
     end
 end)
