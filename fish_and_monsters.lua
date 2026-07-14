@@ -651,20 +651,35 @@ task.spawn(function()
     end
 end)
 
--- Auto Tap Boss Loop (Uses PlayerTap Remote)
+-- Auto Tap Boss Loop (Direct PlayerTap Remote Spammer)
 task.spawn(function()
     while true do
         task.wait(bossTapDelay)
         if autoTapBoss then
             pcall(function()
-                local PlayerTap = findKnitRemote("FishingRewardService", "PlayerTap")
+                -- Direct lookup for PlayerTap in ReplicatedStorage
+                local PlayerTap = findKnitRemote("FishingRewardService", "PlayerTap") or ReplicatedStorage:FindFirstChild("PlayerTap", true)
+                
                 if PlayerTap then
-                    -- Send multiple taps per frame to abuse the boss HP
-                    for i = 1, 50 do
-                        PlayerTap:InvokeServer()
+                    -- Detect whether it is a RemoteEvent or RemoteFunction
+                    if PlayerTap:IsA("RemoteEvent") then
+                        for i = 1, 100 do
+                            if not autoTapBoss then break end
+                            PlayerTap:FireServer()
+                        end
+                    elseif PlayerTap:IsA("RemoteFunction") then
+                        -- For RemoteFunctions, we spawn in coroutine so it doesn't wait for server response
+                        for i = 1, 50 do
+                            if not autoTapBoss then break end
+                            task.spawn(function()
+                                pcall(function()
+                                    PlayerTap:InvokeServer()
+                                end)
+                            end)
+                        end
                     end
                 else
-                    -- Fallback to UI / click detector
+                    -- Fallback to ClickDetectors
                     for _, desc in ipairs(Workspace:GetDescendants()) do
                         if desc:IsA("ClickDetector") then
                             if fireclickdetector then
