@@ -320,7 +320,26 @@ local function runRemoteFishingCycle()
     if not hrp then return end
 
     local origin = hrp.Position
-    local target = origin + hrp.CFrame.LookVector * 8 + Vector3.new(0, -4.5, 0)
+    
+    -- Live raycast to find the exact water surface Y level
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {char}
+    raycastParams.IgnoreWater = false -- Detect water terrain/parts
+    
+    local lookOffset = hrp.CFrame.LookVector * 8
+    local castPos = origin + lookOffset
+    local waterY = origin.Y - 4.5 -- Default fallback Y
+    
+    local result = Workspace:Raycast(Vector3.new(castPos.X, origin.Y + 5, castPos.Z), Vector3.new(0, -50, 0), raycastParams)
+    if result then
+        waterY = result.Position.Y
+        print("[F&M Remote Farm] Detected water surface Y level: " .. tostring(waterY) .. " (Instance: " .. result.Instance:GetFullName() .. ")")
+    else
+        print("[F&M Remote Farm] Raycast missed water, using fallback Y level: " .. tostring(waterY))
+    end
+    
+    local target = Vector3.new(castPos.X, waterY, castPos.Z)
 
     -- 1. Throw Floater
     print("[F&M Remote Farm] 1. Casting Floater...")
