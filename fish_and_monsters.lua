@@ -42,6 +42,7 @@ local tapDelay = 0.05
 
 -- Remote Farming States
 local autoFishingRemote = false
+local autoBlatantFishing = false
 local autoCatchAssist = false
 local rodNameInput = "Fishingrod_Losi"
 local floaterNameInput = "Floater_Doll"
@@ -250,7 +251,22 @@ TabFishing:CreateInput({
     end
 })
 
-TabFishing:CreateSection("UI/Tool Click Fallback")
+TabFishing:CreateSection("Blatant Fishing (Max Speed)")
+
+TabFishing:CreateToggle({
+    Name = "Blatant Fishing (Super Fast - Aggressive)",
+    CurrentValue = false,
+    Flag = "AutoBlatantFishing",
+    Callback = function(value)
+        autoBlatantFishing = value
+        if value then
+            -- Matikan mode lain agar tidak tabrakan
+            autoFishingRemote = false
+            print("[F&M Blatant] ENABLED - Mode blatant aktif, bypass dimatikan otomatis.")
+            Rayfield:Notify({Title = "Blatant Mode ON", Content = "Spam fishing max speed aktif!", Duration = 3})
+        end
+    end
+})
 
 TabFishing:CreateToggle({
     Name = "Auto Equip Rod",
@@ -294,41 +310,18 @@ TabFishing:CreateSlider({
 -- REMOTE AUTO FISHING SYSTEM LOGIC
 ----------------------------------------------------
 
-local function runRemoteFishingCycle()
-    local ThrowFloater        = findKnitRemote("FishingReplicationService", "ThrowFloater")
-    local ConfirmFloatingCast = findKnitRemote("FishingReplicationService", "ConfirmFloatingCast")
-    local RequestFishBite     = findKnitRemote("FishingRewardService",      "RequestFishBite")
-    local StartPulling        = findKnitRemote("FishingReplicationService", "StartPulling")
-    local StopFishing         = findKnitRemote("FishingReplicationService", "StopFishing")
-    local FishingPullInput    = findKnitRemote("FishingRewardService",      "FishingPullInput")
-
-    if not (ThrowFloater and ConfirmFloatingCast and RequestFishBite and StartPulling and StopFishing and FishingPullInput) then
-        warn("[F&M Remote Farm] Missing remotes!")
-        return
-    end
-
-    equipRod()
-    if not autoFishingRemote then return end
-
-    -- Reset state dulu
-    pcall(function() StopFishing:InvokeServer() end)
-    task.wait(0.1)
-
-    local char = LP.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    local origin = hrp.Position
-    local lookOffset = hrp.CFrame.LookVector * 8
-    local castPos = origin + lookOffset
-    local waterY = nil
-
-    -- Hanya deteksi Terrain Water (ignore lantai/platform)
+-- Helper: raycast untuk deteksi permukaan air Terrain
+local function getWaterTarget(origin)
     local terrainParams = RaycastParams.new()
     terrainParams.FilterType = Enum.RaycastFilterType.Include
     terrainParams.FilterDescendantsInstances = {Workspace.Terrain}
     terrainParams.IgnoreWater = false
-
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return origin + Vector3.new(0, -8, 0) end
+    local lookOffset = hrp.CFrame.LookVector * 8
+    local castPos = origin + lookOffset
+    local waterY = nil
     local tr = Workspace:Raycast(Vector3.new(castPos.X, origin.Y+10, castPos.Z), Vector3.new(0,-150,0), terrainParams)
     if tr and tr.Material == Enum.Material.Water then
         waterY = tr.Position.Y
@@ -339,67 +332,175 @@ local function runRemoteFishingCycle()
         end
     end
     waterY = waterY or (origin.Y - 8)
+    return Vector3.new(castPos.X, waterY, castPos.Z)
+end
 
-    local target = Vector3.new(castPos.X, waterY, castPos.Z)
+----------------------------------------------------
+-- AUTO FISHING REMOTE BYPASS (Stabil/Original)
+----------------------------------------------------
+local function runRemoteFishingCycle()
+    local ThrowFloater        = findKnitRemote("FishingReplicationService", "ThrowFloater")
+    local ConfirmFloatingCast = findKnitRemote("FishingReplicationService", "ConfirmFloatingCast")
+    local RequestFishBite     = findKnitRemote("FishingRewardService",      "RequestFishBite")
+    local StartPulling        = findKnitRemote("FishingReplicationService", "StartPulling")
+    local StopFishing         = findKnitRemote("FishingReplicationService", "StopFishing")
+    local FishingPullInput    = findKnitRemote("FishingRewardService",      "FishingPullInput")
 
-    -- 1. ThrowFloater
-    local floatConfig = {LightInfluence=0, FaceCamera=true, Color=Color3.new(0.94,0.31,1), Transparency=0.02, LightEmission=1, Width=0.24}
-    pcall(function() ThrowFloater:InvokeServer(origin, target, rodNameInput, floaterNameInput, floatConfig, 2.5) end)
-    task.wait(0.5) -- Minimum agar server register pelampung
+    if not (ThrowFloater and ConfirmFloatingCast and RequestFishBite and StartPulling and StopFishing and FishingPullInput) then
+        warn("[F&M Bypass] Missing remotes!") return
+    end
 
+    equipRod()
+    task.wait(0.3)
     if not autoFishingRemote then return end
 
-    -- 2. ConfirmFloatingCast (kirim posisi target pelampung)
+    pcall(function() StopFishing:InvokeServer() end)
+    task.wait(0.3)
+
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local origin = hrp.Position
+    local target = getWaterTarget(origin)
+    local floatConfig = {LightInfluence=0, FaceCamera=true, Color=Color3.new(0.94,0.31,1), Transparency=0.02, LightEmission=1, Width=0.24}
+
+    -- 1. ThrowFloater
+    pcall(function() ThrowFloater:InvokeServer(origin, target, rodNameInput, floaterNameInput, floatConfig, 2.5) end)
+    task.wait(1.5)
+    if not autoFishingRemote then return end
+
+    -- 2. ConfirmFloatingCast
     pcall(function() ConfirmFloatingCast:InvokeServer(target) end)
 
-    -- 3. RequestFishBite LANGSUNG - blatant, skip delay nunggu bite
+    -- 3. Tunggu bite (natural delay)
+    task.wait(math.random(2, 3))
+    if not autoFishingRemote then return end
+
+    -- 4. RequestFishBite — ambil SessionId dari response
     local uuid = nil
     local biteOk, biteData = pcall(function()
         return RequestFishBite:InvokeServer(target + Vector3.new(0, 0.1, 0))
     end)
     if biteOk and type(biteData) == "table" then
-        -- SessionId ada langsung di response (terlihat di log console)
         uuid = biteData.SessionId or biteData.sessionId or biteData.castId or extractUUID(biteData)
     end
+    if not uuid then uuid = LP:GetAttribute("FishingCastId") end
+    if not uuid then warn("[F&M Bypass] UUID nil, skip.") return end
 
-    -- Fallback LP Attribute
-    if not uuid then
-        uuid = LP:GetAttribute("FishingCastId")
+    print("[F&M Bypass] UUID: " .. tostring(uuid))
+
+    -- 5. StartPulling
+    pcall(function() StartPulling:InvokeServer() end)
+    task.wait(0.1)
+
+    -- 6. Tap sequential (stabil, tidak spam berlebihan)
+    for i = 1, 15 do
+        if not autoFishingRemote then break end
+        pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
+        task.wait(0.05)
     end
 
-    if not uuid then
-        warn("[F&M Remote Farm] UUID nil, skip cycle.")
-        return
+    task.wait(0.3)
+    pcall(function() StopFishing:InvokeServer() end)
+    print("[F&M Bypass] Cycle done.")
+end
+
+-- Remote Bypass Loop (delay wajar)
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if autoFishingRemote then
+            local ok, err = pcall(runRemoteFishingCycle)
+            if not ok then
+                warn("[F&M Bypass Error]: " .. tostring(err))
+                task.wait(2)
+            end
+        end
+    end
+end)
+
+----------------------------------------------------
+-- BLATANT FISHING (Max Speed, Terpisah)
+----------------------------------------------------
+local function runBlatantFishingCycle()
+    local ThrowFloater        = findKnitRemote("FishingReplicationService", "ThrowFloater")
+    local ConfirmFloatingCast = findKnitRemote("FishingReplicationService", "ConfirmFloatingCast")
+    local RequestFishBite     = findKnitRemote("FishingRewardService",      "RequestFishBite")
+    local StartFishing        = findKnitRemote("FishingReplicationService", "StartFishing")
+    local StartPulling        = findKnitRemote("FishingReplicationService", "StartPulling")
+    local StopFishing         = findKnitRemote("FishingReplicationService", "StopFishing")
+    local FishingPullInput    = findKnitRemote("FishingRewardService",      "FishingPullInput")
+
+    if not (ThrowFloater and ConfirmFloatingCast and RequestFishBite and StartPulling and StopFishing and FishingPullInput) then
+        warn("[F&M Blatant] Missing remotes!") return
     end
 
-    print("[F&M Remote Farm] UUID: " .. tostring(uuid))
+    equipRod()
+    if not autoBlatantFishing then return end
 
-    -- 4. StartPulling
+    -- Reset
+    pcall(function() StopFishing:InvokeServer() end)
+    task.wait(0.05)
+
+    -- StartFishing (dari log Cobalt, dipanggil sebelum ThrowFloater)
+    if StartFishing then
+        pcall(function() StartFishing:InvokeServer(rodNameInput, floaterNameInput) end)
+    end
+
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local origin = hrp.Position
+    local target = getWaterTarget(origin)
+    local floatConfig = {LightInfluence=0, FaceCamera=true, Color=Color3.new(0.94,0.31,1), Transparency=0.02, LightEmission=1, Width=0.24}
+
+    -- ThrowFloater
+    pcall(function() ThrowFloater:InvokeServer(origin, target, rodNameInput, floaterNameInput, floatConfig, 2.5) end)
+    task.wait(0.4) -- minimum server register
+    if not autoBlatantFishing then return end
+
+    -- ConfirmFloatingCast
+    pcall(function() ConfirmFloatingCast:InvokeServer(target) end)
+
+    -- RequestFishBite LANGSUNG (no wait)
+    local uuid = nil
+    local biteOk, biteData = pcall(function()
+        return RequestFishBite:InvokeServer(target + Vector3.new(0, 0.1, 0))
+    end)
+    if biteOk and type(biteData) == "table" then
+        uuid = biteData.SessionId or biteData.sessionId or biteData.castId or extractUUID(biteData)
+    end
+    if not uuid then uuid = LP:GetAttribute("FishingCastId") end
+    if not uuid then return end
+
+    print("[F&M Blatant] UUID: " .. tostring(uuid))
+
+    -- StartPulling
     pcall(function() StartPulling:InvokeServer() end)
 
-    -- 5. BLATANT TAP SPAM — semua tap paralel serentak (30 coroutine)
-    -- progressPerTap=0.1, perlu ~8 tap saja, kita kirim 30 untuk jaminan
+    -- BLATANT: spam 30 tap PARALEL serentak (tanpa delay)
     for i = 1, 30 do
-        if not autoFishingRemote then break end
+        if not autoBlatantFishing then break end
         task.spawn(function()
             pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
         end)
     end
 
-    task.wait(0.2)
+    task.wait(0.15)
     pcall(function() StopFishing:InvokeServer() end)
-    print("[F&M Remote Farm] Cycle done.")
 end
 
--- Remote Farm Loop Thread (tanpa delay antar cycle)
+-- Blatant Fishing Loop Thread
 task.spawn(function()
     while true do
-        task.wait(0.1)
-        if autoFishingRemote then
-            local ok, err = pcall(runRemoteFishingCycle)
+        task.wait(0.05)
+        if autoBlatantFishing then
+            local ok, err = pcall(runBlatantFishingCycle)
             if not ok then
-                warn("[F&M Remote Farm Error]: " .. tostring(err))
-                task.wait(1) -- brief cooldown hanya saat error
+                warn("[F&M Blatant Error]: " .. tostring(err))
+                task.wait(1)
             end
         end
     end
