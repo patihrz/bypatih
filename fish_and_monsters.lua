@@ -702,12 +702,19 @@ local function runBlatantFishingCycle()
     pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
     task.wait(0.1)
 
-    -- 12 taps dengan delay 0.05s (lebih lambat, lebih aman dari rate-limit)
-    for i = 1, 12 do
+    -- Taps dengan delay wajar (150ms) menyerupai kecepatan tap manusia untuk menghindari rate-limit
+    for i = 1, 15 do
         if not autoBlatantFishing then break end
-        pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
-        task.wait(0.05)
+        local ok, res = pcall(function()
+            return FishingPullInput:InvokeServer(uuid, "tap")
+        end)
+        print("[F&M Blatant] Tap #" .. i .. " sent. Success: " .. tostring(ok) .. " | Return: " .. tostring(res))
+        if ok and type(res) == "table" then
+            dumpTable(res, "    ")
+        end
+        task.wait(0.15)
     end
+
 
     print("[F&M Blatant] Taps sent. Menunggu FishCaught / FishingSuccess (max 4s)...")
 
