@@ -381,12 +381,25 @@ local function runRemoteFishingCycle()
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
+    -- Deteksi dinamis nama joran (contoh: DryardRod)
+    local rod = getRod()
+    local activeRodName = rod and rod.Name or rodNameInput
+    
+    -- Deteksi dinamis nama floater dari attribute
+    local activeFloaterName = floaterNameInput
+    for k, v in pairs(LP:GetAttributes()) do
+        if type(v) == "string" and (k:lower():find("floater") or v:lower():find("floater")) and v ~= "" then
+            activeFloaterName = v
+            break
+        end
+    end
+
     local origin = hrp.Position
     local target = getWaterTarget(origin)
     local floatConfig = {LightInfluence=0, FaceCamera=true, Color=Color3.new(0.94,0.31,1), Transparency=0.02, LightEmission=1, Width=0.24}
 
     -- 1. ThrowFloater
-    pcall(function() ThrowFloater:InvokeServer(origin, target, rodNameInput, floaterNameInput, floatConfig, 2.5) end)
+    pcall(function() ThrowFloater:InvokeServer(origin, target, activeRodName, activeFloaterName, floatConfig, 2.5) end)
     task.wait(1.5)
     if not autoFishingRemote then return end
 
@@ -458,7 +471,18 @@ local function runBlatantFishingCycle()
     end
 
     equipRod()
-    if not autoBlatantFishing then return end
+    -- Deteksi joran (contoh: DryardRod)
+    local rod = getRod()
+    local activeRodName = rod and rod.Name or rodNameInput
+    
+    -- Deteksi floater
+    local activeFloaterName = floaterNameInput
+    for k, v in pairs(LP:GetAttributes()) do
+        if type(v) == "string" and (k:lower():find("floater") or v:lower():find("floater")) and v ~= "" then
+            activeFloaterName = v
+            break
+        end
+    end
 
     -- Reset state
     pcall(function() StopFishing:InvokeServer() end)
@@ -466,7 +490,7 @@ local function runBlatantFishingCycle()
 
     -- StartFishing (sesuai urutan Cobalt log)
     if StartFishing then
-        pcall(function() StartFishing:InvokeServer(rodNameInput, floaterNameInput) end)
+        pcall(function() StartFishing:InvokeServer(activeRodName, activeFloaterName) end)
     end
 
     local char = LP.Character
@@ -481,7 +505,7 @@ local function runBlatantFishingCycle()
     local oldCastId = LP:GetAttribute("FishingCastId") or ""
 
     -- ThrowFloater
-    pcall(function() ThrowFloater:InvokeServer(origin, target, rodNameInput, floaterNameInput, floatConfig, 2.5) end)
+    pcall(function() ThrowFloater:InvokeServer(origin, target, activeRodName, activeFloaterName, floatConfig, 2.5) end)
     task.wait(0.3)
     if not autoBlatantFishing then return end
 
