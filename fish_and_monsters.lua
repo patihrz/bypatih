@@ -120,6 +120,39 @@ local function castRod()
     end
 end
 
+-- Dismiss Caught Fish Banner (Tap to continue)
+local function dismissCaughtBanner()
+    pcall(function()
+        for _, gui in ipairs(LP.PlayerGui:GetDescendants()) do
+            if gui:IsA("TextButton") or gui:IsA("ImageButton") or gui:IsA("TextLabel") then
+                local text = ""
+                pcall(function() text = gui.Text:lower() end)
+                local name = gui.Name:lower()
+                
+                if text:find("continue") or text:find("tap to") or name:find("continue") or name:find("dismiss") then
+                    local button = nil
+                    if gui:IsA("TextButton") or gui:IsA("ImageButton") then
+                        button = gui
+                    elseif gui.Parent and (gui.Parent:IsA("TextButton") or gui.Parent:IsA("ImageButton")) then
+                        button = gui.Parent
+                    end
+                    
+                    if button and button.Visible then
+                        if typeof(firesignal) == "function" then
+                            pcall(firesignal, button.MouseButton1Click)
+                            pcall(firesignal, button.Activated)
+                        else
+                            pcall(function() button.MouseButton1Click:Fire() end)
+                            pcall(function() button.Activated:Fire() end)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+
 -- Find Raid Orb in workspace
 local function findRaidOrb()
     for _, obj in ipairs(Workspace:GetDescendants()) do
@@ -743,6 +776,15 @@ local function runBlatantFishingCycle()
         task.wait(0.02)
         pcall(function() ReleasePreview:InvokeServer(caughtFishName, nil) end)
     end
+
+    -- Klik banner overlay 'Tap to continue' secara instan agar tidak nunggu lama
+    task.spawn(function()
+        for i = 1, 10 do
+            dismissCaughtBanner()
+            task.wait(0.05)
+        end
+    end)
+
     print("[F&M Blatant] Cycle completed!")
 end
 
