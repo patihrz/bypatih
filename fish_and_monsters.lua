@@ -547,7 +547,7 @@ local function runRemoteFishingCycle()
     task.wait(math.random(2, 3))
     if not autoFishingRemote then return end
 
-    -- 4. RequestFishBite — ambil SessionId dari response
+    -- 4. RequestFishBite - ambil SessionId dari response
     local uuid = nil
     local biteOk, biteData = pcall(function()
         return RequestFishBite:InvokeServer(target + Vector3.new(0, 0.1, 0))
@@ -690,7 +690,7 @@ local function runBlatantFishingCycle()
         end)
     end
 
-    -- FishingPullState listener — DIAGNOSIS: lihat arg apa yang dikirim server
+    -- FishingPullState listener - DIAGNOSIS: lihat arg apa yang dikirim server
     local pullStateCount = 0
     if FishingPullState and FishingPullState:IsA("RemoteEvent") then
         connections[#connections+1] = FishingPullState.OnClientEvent:Connect(function(...)
@@ -726,7 +726,7 @@ local function runBlatantFishingCycle()
     task.wait(0.05) -- Dipercepat dari 0.2
 
     -- ================================================================
-    -- RequestFishBite — trigger server untuk assign ikan
+    -- RequestFishBite - trigger server untuk assign ikan
     -- ================================================================
     local uuid = nil
     if RequestFishBite then
@@ -767,7 +767,7 @@ local function runBlatantFishingCycle()
 
     print("[F&M Blatant] Bite! UUID: " .. tostring(uuid))
 
-    -- Tunggu FishingPullState dari server (max 1s) — tanda server siap untuk StartPulling
+    -- Tunggu FishingPullState dari server (max 1s) - tanda server siap untuk StartPulling
     local wsrv = 0
     while wsrv < 1 and not serverReadyForPull do -- Dipercepat dari 2s
         task.wait(0.02); wsrv = wsrv + 0.02
@@ -846,7 +846,7 @@ end)
 
 
 -- Auto Catch Assist Loop Thread
--- Dipakai dengan AFK mode game — jangan jalankan bersama Blatant Mode!
+-- Dipakai dengan AFK mode game - jangan jalankan bersama Blatant Mode!
 local lastAssistId = nil
 local cachedAssistPullInput = nil
 task.spawn(function()
