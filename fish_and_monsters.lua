@@ -51,8 +51,10 @@ local autoJoinRaid = false
 local autoTapBoss = false
 local bossTapDelay = 0.01
 local activeBossName = nil
+local cachedPlayerTap = nil
 
 local remoteSpyEnabled = false
+
 
 -- Create Window
 local Window = Rayfield:CreateWindow({
@@ -891,7 +893,7 @@ local function detectBossFromEvents()
     return nil
 end
 
--- Helper: scan workspace for active boss model name (pola _SM)
+-- Helper: scan workspace for active boss model name (Pola _SM, Proximity, & High HP)
 local function findActiveBossName()
     -- 1. Coba lewat server event remote
     local bossFromRemote = detectBossFromEvents()
@@ -900,16 +902,67 @@ local function findActiveBossName()
         return bossFromRemote
     end
 
-    -- 2. Fallback: scan workspace descendants
+    -- 2. Fallback A: scan workspace descendants untuk pola _SM
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") then
-            -- Nama boss biasanya diakhiri _SM (contoh: Windah_SM, Losi_SM, dll)
             if obj.Name:match("_SM$") then
-                print("[F&M Boss] Found boss model in workspace: " .. obj.Name)
+                print("[F&M Boss] Found boss model ending with _SM in workspace: " .. obj.Name)
                 return obj.Name
             end
         end
     end
+
+    -- 3. Fallback B: scan dekat RaidCircle / RaidOrb
+    local raidOrb = findRaidOrb()
+    if raidOrb then
+        local nearestModel = nil
+        local nearestDist = 200 -- Radius area raid
+        
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("Model") and obj.Name ~= LP.Name then
+                -- Jangan deteksi player lain
+                local isPlayer = Players:GetPlayerFromCharacter(obj)
+                if not isPlayer then
+                    local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
+                    if hrp then
+                        local dist = (hrp.Position - raidOrb.Position).Magnitude
+                        if dist < nearestDist then
+                            local hum = obj:FindFirstChildOfClass("Humanoid")
+                            local nameLower = obj.Name:lower()
+                            
+                            -- Kriteria Boss: Punya Humanoid dengan MaxHealth > 5000, ATAU nama mengandung boss/monster/raid/giant/beast
+                            if (hum and hum.MaxHealth > 5000) or
+                               nameLower:find("boss") or nameLower:find("monster") or 
+                               nameLower:find("giant") or nameLower:find("beast") or nameLower:find("raid") then
+                                
+                                nearestModel = obj.Name
+                                nearestDist = dist
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        if nearestModel then
+            print("[F&M Boss] Found boss model via Raid Proximity: " .. nearestModel)
+            return nearestModel
+        end
+    end
+
+    -- 4. Fallback C: Scan nama boss di seluruh workspace yang punya HP sangat tinggi
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj.Name ~= LP.Name then
+            local isPlayer = Players:GetPlayerFromCharacter(obj)
+            if not isPlayer then
+                local hum = obj:FindFirstChildOfClass("Humanoid")
+                if hum and hum.MaxHealth > 100000 then -- Biasanya boss HP-nya jutaan
+                    print("[F&M Boss] Found boss model via High HP (>100k): " .. obj.Name)
+                    return obj.Name
+                end
+            end
+        end
+    end
+
     return nil
 end
 
@@ -1083,7 +1136,6 @@ task.spawn(function()
 end)
 
 -- Auto Tap Boss Loop (dengan cache remote + debug verbose)
-local cachedPlayerTap = nil
 task.spawn(function()
     while true do
         task.wait(bossTapDelay)
@@ -1098,8 +1150,22 @@ task.spawn(function()
                 end
             end
 
-            -- Auto-detect boss name setiap loop jika belum ada
-            if not activeBossName then
+            -- Verifikasi apakah boss yang lama masih ada di workspace
+            if activeBossName then
+                local bossModel = workspace:FindFirstChild(activeBossName, true)
+                if not bossModel then
+                    -- Reset nama agar men-scan ulang jika boss sudah mati atau berganti
+                    local newBossName = findActiveBossName()
+                    if newBossName ~= activeBossName then
+                        activeBossName = newBossName
+                        if newBossName then
+                            print("[F&M Boss] Boss berganti / terdeteksi baru: " .. newBossName)
+                        else
+                            print("[F&M Boss] Boss lama telah mati/hilang. Mencari boss baru...")
+                        end
+                    end
+                end
+            else
                 activeBossName = findActiveBossName()
                 if activeBossName then
                     print("[F&M Boss] Auto-detected boss name: " .. activeBossName)
@@ -1117,8 +1183,6 @@ task.spawn(function()
                     end)
                     task.wait(0.015)
                 end
-            elseif not cachedPlayerTap then
-                cachedPlayerTap = nil
             end
         else
             cachedPlayerTap = nil
