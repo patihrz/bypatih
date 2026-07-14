@@ -132,6 +132,24 @@ local function findRaidOrb()
     return nil
 end
 
+-- Dump table contents to console helper
+local function dumpTable(t, indent)
+    indent = indent or "  "
+    if type(t) == "table" then
+        for k, v in pairs(t) do
+            if type(v) == "table" then
+                print(indent .. tostring(k) .. " = {")
+                dumpTable(v, indent .. "  ")
+                print(indent .. "}")
+            else
+                print(indent .. tostring(k) .. " = " .. tostring(v) .. " (" .. typeof(v) .. ")")
+            end
+        end
+    else
+        print(indent .. tostring(t))
+    end
+end
+
 -- Extract UUID from various data structures recursively
 local function extractUUID(val)
     if type(val) == "string" then
@@ -302,14 +320,30 @@ local function runRemoteFishingCycle()
         Width = 0.24
     }
 
-    pcall(function() ThrowFloater:InvokeServer(origin, target, rodNameInput, floaterNameInput, floatConfig, 2.5) end)
+    local uuid = nil
+
+    local castSuccess, castResult = pcall(function() 
+        return ThrowFloater:InvokeServer(origin, target, rodNameInput, floaterNameInput, floatConfig, 2.5) 
+    end)
+    if castSuccess then
+        print("[F&M Remote Farm] ThrowFloater Result:")
+        dumpTable(castResult)
+        uuid = extractUUID(castResult)
+    end
     task.wait(1.5)
 
     if not autoFishingRemote then return end
 
     -- 2. Confirm Floating Cast
     print("[F&M Remote Farm] 2. Confirming Cast...")
-    pcall(function() ConfirmFloatingCast:InvokeServer() end)
+    local confirmSuccess, confirmResult = pcall(function() 
+        return ConfirmFloatingCast:InvokeServer() 
+    end)
+    if confirmSuccess then
+        print("[F&M Remote Farm] ConfirmFloatingCast Result:")
+        dumpTable(confirmResult)
+        if not uuid then uuid = extractUUID(confirmResult) end
+    end
 
     -- Wait for bite
     print("[F&M Remote Farm] Waiting for bite...")
@@ -319,19 +353,49 @@ local function runRemoteFishingCycle()
 
     -- 3. Request Fish Bite
     print("[F&M Remote Farm] 3. Requesting Fish Bite...")
-    pcall(function() RequestFishBite:InvokeServer() end)
+    local biteSuccess, biteResult = pcall(function() 
+        return RequestFishBite:InvokeServer() 
+    end)
+    if biteSuccess then
+        print("[F&M Remote Farm] RequestFishBite Result:")
+        dumpTable(biteResult)
+        if not uuid then uuid = extractUUID(biteResult) end
+    end
     task.wait(0.5)
 
     if not autoFishingRemote then return end
 
     -- 4. Start Pulling
     print("[F&M Remote Farm] 4. Invoking StartPulling...")
-    local pullSuccess, pullResult = pcall(function() return StartPulling:InvokeServer() end)
-
-    -- Attempt to find UUID from local memory/Knit if remote returns nil
-    local uuid = nil
+    local pullSuccess, pullResult = pcall(function() 
+        return StartPulling:InvokeServer() 
+    end)
     if pullSuccess then
-        uuid = extractUUID(pullResult)
+        print("[F&M Remote Farm] StartPulling Result:")
+        dumpTable(pullResult)
+        if not uuid then uuid = extractUUID(pullResult) end
+    end
+
+    -- LocalPlayer Attributes Scan Fallback
+    if not uuid then
+        for k, v in pairs(LP:GetAttributes()) do
+            if type(v) == "string" and (v:match("^%x+-%x+-%x+-%x+-%x+$") or #v == 36) then
+                uuid = v
+                print("[F&M Attribute Hook] Found UUID in LP Attribute (" .. k .. "): " .. uuid)
+                break
+            end
+        end
+    end
+
+    -- Character Attributes Scan Fallback
+    if not uuid and char then
+        for k, v in pairs(char:GetAttributes()) do
+            if type(v) == "string" and (v:match("^%x+-%x+-%x+-%x+-%x+$") or #v == 36) then
+                uuid = v
+                print("[F&M Attribute Hook] Found UUID in Character Attribute (" .. k .. "): " .. uuid)
+                break
+            end
+        end
     end
 
     -- Knit Controller Hook Fallback (Scan all controllers for UUID properties/values)
@@ -363,7 +427,6 @@ local function runRemoteFishingCycle()
 
     if not uuid then
         warn("[F&M Remote Farm] Gagal mendapatkan UUID. Mencoba menembak dengan UUID acak...")
-        -- In some games, you can generate a random UUID and the server accepts it if session checks are loose
         uuid = game:GetService("HttpService"):GenerateGUID(false):lower()
     end
 
