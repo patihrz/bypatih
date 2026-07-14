@@ -1326,6 +1326,72 @@ TabDeveloper:CreateButton({
 })
 
 TabDeveloper:CreateButton({
+    Name = "[DEBUG] Scan Inventory & Client State (Console)",
+    Callback = function()
+        print("=== INVENTORY & CLIENT STATE SCAN ===")
+        
+        -- 1. Scan LocalPlayer properties and folders
+        print("--- Player Children ---")
+        for _, child in ipairs(LP:GetChildren()) do
+            print(string.format("  %s (%s)", child.Name, child.ClassName))
+            if child:IsA("Folder") or child:IsA("Configuration") or child:IsA("StringValue") or child:IsA("ValueObject") then
+                local items = child:GetChildren()
+                print(string.format("    (Total items: %d)", #items))
+                for i = 1, math.min(15, #items) do
+                    print(string.format("    [%d] %s (%s)", i, items[i].Name, items[i].ClassName))
+                    local attrs = items[i]:GetAttributes()
+                    for k, v in pairs(attrs) do
+                        print(string.format("      Attr: %s = %s", k, tostring(v)))
+                    end
+                end
+            end
+        end
+        
+        -- 2. Scan ReplicatedStorage player data
+        print("--- ReplicatedStorage PlayerData / Replicas ---")
+        for _, child in ipairs(ReplicatedStorage:GetChildren()) do
+            local nameLower = child.Name:lower()
+            if nameLower:find("replica") or nameLower:find("profile") or nameLower:find("data") or nameLower:find("state") or nameLower:find("inventory") then
+                print(string.format("  Found candidate: %s (%s)", child.Name, child.ClassName))
+                local items = child:GetChildren()
+                for i = 1, math.min(10, #items) do
+                    print(string.format("    [%d] %s (%s)", i, items[i].Name, items[i].ClassName))
+                end
+            end
+        end
+        
+        -- 3. Scan Knit controllers inventory methods
+        local Knit = getKnitClient()
+        if Knit then
+            print("--- Knit Controllers Inventory/Shop Candidates ---")
+            for name, controller in pairs(Knit.Controllers or {}) do
+                local nameLower = name:lower()
+                if nameLower:find("inv") or nameLower:find("shop") or nameLower:find("merchant") or nameLower:find("fish") or nameLower:find("player") then
+                    print(string.format("  Controller: %s", name))
+                    for k, v in pairs(controller) do
+                        if type(v) == "function" then
+                            print(string.format("    Method: %s", k))
+                        else
+                            local valStr = tostring(v)
+                            if type(v) == "table" then
+                                valStr = "{...} (size " .. tostring(#v) .. ")"
+                            end
+                            print(string.format("    Property: %s = %s (%s)", k, valStr, typeof(v)))
+                        end
+                    end
+                end
+            end
+        else
+            print("Knit Client not found!")
+        end
+        
+        print("=== SCAN COMPLETE ===")
+        Rayfield:Notify({Title = "Diagnosis Done!", Content = "Scan finished. Check Console (F9)!", Duration = 4})
+    end
+})
+
+
+TabDeveloper:CreateButton({
     Name = "[DEBUG] Fishing Diagnosis (Check Console!)",
     Callback = function()
         print("=== FISHING REMOTE DIAGNOSIS ===")
@@ -1647,71 +1713,228 @@ TabPlayer:CreateButton({
 TabSell:CreateSection("Auto Sell Toggles")
 
 local sellLabel = TabSell:CreateLabel("Detected Remote: Scanning...")
+local inventoryLabel = TabSell:CreateLabel("Inventory Items: Scanning...")
 
--- Helper: dapatkan atau scan remote penjualan
-local function performSell()
-    local remote = detectedSellRemote
-    if not remote then
-        -- Auto-detect remote
-        for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
-            if obj:IsA("RemoteFunction") or obj:IsA("RemoteEvent") then
-                local name = obj.Name:lower()
-                if name:find("sell") or name:find("merchant") then
-                    remote = obj
-                    detectedSellRemote = obj
-                    pcall(function() sellLabel:Set("Detected Remote: " .. obj:GetFullName()) end)
-                    break
+-- Helper: dapatkan atau scan config ikan untuk filter rarity
+local fishConfigCache = {}
+local function cacheFishConfig()
+    local getConfig = ReplicatedStorage:FindFirstChild("GetConfigOnDemand")
+    if getConfig and getConfig:IsA("RemoteFunction") then
+        local ok, data = pcall(function() return getConfig:InvokeServer("FishConfig") end)
+        if ok and type(data) == "table" then
+            fishConfigCache = data
+            print("[F&M Auto Sell] FishConfig successfully cached! Total entries: " .. tostring(#data or 0))
+            return true
+        end
+    end
+    return false
+end
+
+-- Helper: cari rarity berdasarkan FishId dari cache config
+local function getFishRarity(fishId)
+    if not next(fishConfigCache) then cacheFishConfig() end
+    local cfg = fishConfigCache[fishId]
+    if cfg then
+        return cfg.Rarity or cfg.rarity or cfg.RarityId or "Common"
+    end
+    -- Fallback case-insensitive
+    for name, data in pairs(fishConfigCache) do
+        if name:lower() == fishId:lower() then
+            return data.Rarity or data.rarity or data.RarityId or "Common"
+        end
+    end
+    return "Common"
+end
+
+-- Helper: scan inventory client untuk mendapatkan FishId, Count, dan InstanceId
+local function getInventoryFish()
+    local fishList = {}
+    
+    -- JALUR 1: Scan Knit Client Controllers (Paling Umum di Knit)
+    local Knit = getKnitClient()
+    if Knit then
+        -- Cari controller yang menangani data inventory
+        local controllers = {"InventoryController", "FishInventoryController", "FishController", "PlayerController", "FishermanShopController"}
+        for _, ctrlName in ipairs(controllers) do
+            local ctrl = Knit.Controllers[ctrlName]
+            if ctrl then
+                local invData = nil
+                -- Coba panggil method get inventory
+                if typeof(ctrl.GetInventory) == "function" then
+                    pcall(function() invData = ctrl:GetInventory() end)
+                end
+                if not invData and typeof(ctrl.GetInventoryData) == "function" then
+                    pcall(function() invData = ctrl:GetInventoryData() end)
+                end
+                -- Coba baca property langsung
+                if not invData then
+                    invData = ctrl.Inventory or ctrl.InventoryData or ctrl.inventory or ctrl._inventory
+                end
+                
+                if type(invData) == "table" then
+                    print("[F&M Auto Sell] Found inventory data in Knit Controller: " .. ctrlName)
+                    -- Parse data
+                    for k, v in pairs(invData) do
+                        if type(v) == "table" then
+                            -- Format 1: { FishId = "Axolotl", InstanceId = "...", Count = 1 }
+                            local fishId = v.FishId or v.fishId or v.Name or v.name or v.Id or v.id
+                            local instanceId = v.InstanceId or v.instanceId or tostring(k)
+                            local count = v.Count or v.count or 1
+                            local rarity = v.Rarity or v.rarity
+                            
+                            if fishId and instanceId then
+                                table.insert(fishList, {
+                                    FishId = fishId,
+                                    InstanceId = instanceId,
+                                    Count = count,
+                                    Rarity = rarity
+                                })
+                            end
+                        end
+                    end
+                    if #fishList > 0 then break end
                 end
             end
         end
     end
     
-    if not remote then
-        warn("[F&M Auto Sell] Sell/Merchant remote tidak ditemukan!")
-        pcall(function() sellLabel:Set("Detected Remote: NOT FOUND!") end)
-        return false, "Remote tidak ditemukan"
-    end
-    
-    -- Siapkan list rarity yang akan dijual
-    local rarities = {}
-    if sellCommon then table.insert(rarities, "Common") end
-    if sellUncommon then table.insert(rarities, "Uncommon") end
-    if sellRare then table.insert(rarities, "Rare") end
-    if sellEpic then table.insert(rarities, "Epic") end
-    if sellLegendary then table.insert(rarities, "Legendary") end
-    
-    -- Format 1: Kirim array rarities (e.g. {"Common", "Uncommon"})
-    -- Format 2: Kirim dictionary (e.g. {Common = true, Uncommon = true})
-    local dictFormat = {}
-    for _, r in ipairs(rarities) do
-        dictFormat[r] = true
-    end
-    
-    local success, err
-    if remote:IsA("RemoteFunction") then
-        success, err = pcall(function() return remote:InvokeServer(rarities) end)
-        if not success then
-            success, err = pcall(function() return remote:InvokeServer(dictFormat) end)
-        end
-        if not success then
-            success, err = pcall(function() return remote:InvokeServer() end)
-        end
-    else -- RemoteEvent
-        success, err = pcall(function() remote:FireServer(rarities) end)
-        if not success then
-            success, err = pcall(function() remote:FireServer(dictFormat) end)
-        end
-        if not success then
-            success, err = pcall(function() remote:FireServer() end)
+    -- JALUR 2: Scan LocalPlayer folders (Data / Inventory)
+    if #fishList == 0 then
+        local invFolder = LP:FindFirstChild("Inventory", true) or LP:FindFirstChild("Data", true) or LP:FindFirstChild("FishInventory", true) or LP:FindFirstChild("items", true)
+        if invFolder then
+            print("[F&M Auto Sell] Found inventory folder under LocalPlayer: " .. invFolder:GetFullName())
+            for _, item in ipairs(invFolder:GetChildren()) do
+                local fishId = item:GetAttribute("FishId") or item:GetAttribute("Name") or item.Name
+                local instanceId = item:GetAttribute("InstanceId") or item.Name
+                local rarity = item:GetAttribute("Rarity")
+                local count = item:GetAttribute("Count") or 1
+                
+                if fishId and instanceId then
+                    table.insert(fishList, {
+                        FishId = fishId,
+                        InstanceId = instanceId,
+                        Count = count,
+                        Rarity = rarity
+                    })
+                end
+            end
         end
     end
+
+    -- JALUR 3: Scan ReplicatedStorage Replica / Profiles jika ada
+    if #fishList == 0 then
+        local replicas = ReplicatedStorage:FindFirstChild("Replicas") or ReplicatedStorage:FindFirstChild("ReplicaFolder")
+        if replicas then
+            for _, child in ipairs(replicas:GetChildren()) do
+                if child.Name:find(LP.Name) or child.Name:find("Inventory") or child.Name:find("Player") then
+                    for _, f in ipairs(child:GetDescendants()) do
+                        if f:IsA("Folder") or f:IsA("Configuration") then
+                            local fishId = f:GetAttribute("FishId") or f.Name
+                            local instanceId = f:GetAttribute("InstanceId") or f.Name
+                            local count = f:GetAttribute("Count") or 1
+                            if fishId and instanceId and #instanceId > 4 then
+                                table.insert(fishList, {
+                                    FishId = fishId,
+                                    InstanceId = instanceId,
+                                    Count = count
+                                })
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
     
-    if success then
-        print("[F&M Auto Sell] Sukses memanggil remote: " .. remote:GetFullName())
-        return true, remote.Name
+    pcall(function() inventoryLabel:Set("Inventory Items: Found " .. #fishList) end)
+    return fishList
+end
+
+-- Utama: lakukan penjualan berdasarkan filter
+local function performSell()
+    -- Prioritas 1: Gunakan SellSelectedFish (Bisa pilih rarity)
+    local sellSelectedRemote = findKnitRemote("FishermanShopService", "SellSelectedFish")
+    local sellAllRemote = findKnitRemote("FishermanShopService", "SellAllFish")
+    
+    if sellSelectedRemote then
+        pcall(function() sellLabel:Set("Detected Remote: SellSelectedFish") end)
+        
+        -- Ambil data inventory
+        local inventory = getInventoryFish()
+        if #inventory == 0 then
+            print("[F&M Auto Sell] Inventory kosong atau format inventory tidak terdeteksi.")
+            -- Fallback ke SellAllFish jika tidak ada inventory terdeteksi
+            if sellAllRemote then
+                print("[F&M Auto Sell] Fallback ke SellAllFish...")
+                local ok, err = pcall(function() return sellAllRemote:InvokeServer() end)
+                if ok then return true, "SellAllFish (Fallback)" else return false, tostring(err) end
+            end
+            return false, "Inventory kosong/tidak terdeteksi"
+        end
+        
+        -- Filter ikan berdasarkan rarity yang dipilih
+        local payload = {}
+        for _, item in ipairs(inventory) do
+            local rarity = item.Rarity or getFishRarity(item.FishId)
+            local rarityStr = tostring(rarity):lower()
+            
+            local shouldSell = false
+            if rarityStr:find("common") and not rarityStr:find("uncommon") and sellCommon then
+                shouldSell = true
+            elseif rarityStr:find("uncommon") and sellUncommon then
+                shouldSell = true
+            elseif rarityStr:find("rare") and sellRare then
+                shouldSell = true
+            elseif rarityStr:find("epic") and sellEpic then
+                shouldSell = true
+            elseif rarityStr:find("legendary") and sellLegendary then
+                shouldSell = true
+            end
+            
+            if shouldSell then
+                table.insert(payload, {
+                    FishId = item.FishId,
+                    Count = item.Count or 1,
+                    InstanceId = item.InstanceId
+                })
+            end
+        end
+        
+        if #payload == 0 then
+            print("[F&M Auto Sell] Tidak ada ikan yang cocok dengan filter rarity.")
+            return false, "No items match filter"
+        end
+        
+        -- Kirim penjualan ke server
+        local success, result = pcall(function()
+            return sellSelectedRemote:InvokeServer(payload)
+        end)
+        
+        if success then
+            print("[F&M Auto Sell] Sukses menjual " .. #payload .. " ikan terpilih.")
+            return true, "SellSelectedFish (" .. #payload .. " ikan)"
+        else
+            warn("[F&M Auto Sell] Gagal memanggil SellSelectedFish: " .. tostring(result))
+            return false, tostring(result)
+        end
+    
+    -- Prioritas 2: Fallback ke SellAllFish jika SellSelectedFish tidak ada
+    elseif sellAllRemote then
+        pcall(function() sellLabel:Set("Detected Remote: SellAllFish") end)
+        local success, result = pcall(function()
+            return sellAllRemote:InvokeServer()
+        end)
+        if success then
+            print("[F&M Auto Sell] Sukses menjual semua ikan (SellAllFish).")
+            return true, "SellAllFish"
+        else
+            warn("[F&M Auto Sell] Gagal memanggil SellAllFish: " .. tostring(result))
+            return false, tostring(result)
+        end
     else
-        warn("[F&M Auto Sell] Gagal memanggil remote: " .. tostring(err))
-        return false, tostring(err)
+        pcall(function() sellLabel:Set("Detected Remote: NOT FOUND!") end)
+        warn("[F&M Auto Sell] Remote penjualan tidak ditemukan!")
+        return false, "Remote tidak ditemukan"
     end
 end
 
@@ -1801,7 +2024,7 @@ TabSell:CreateButton({
     Callback = function()
         local ok, info = performSell()
         if ok then
-            Rayfield:Notify({Title = "Auto Sell", Content = "Sukses menjual ikan terpilih lewat " .. info, Duration = 4})
+            Rayfield:Notify({Title = "Auto Sell", Content = "Sukses menjual ikan: " .. info, Duration = 4})
         else
             Rayfield:Notify({Title = "Auto Sell Error", Content = "Gagal menjual: " .. info, Duration = 4})
         end
@@ -1836,7 +2059,7 @@ task.spawn(function()
                 print("[F&M Auto Sell] Menit tercapai (" .. sellIntervalMinutes .. " menit). Menjual...")
                 local ok, info = performSell()
                 if ok then
-                    Rayfield:Notify({Title = "Auto Sell", Content = "Sukses menjual ikan (interval menit) lewat " .. info, Duration = 4})
+                    Rayfield:Notify({Title = "Auto Sell", Content = "Sukses menjual ikan (interval menit): " .. info, Duration = 4})
                 end
                 lastSellTime = os.clock()
             end
@@ -1850,7 +2073,7 @@ task.spawn(function()
                 print("[F&M Auto Sell] Jumlah ikan tercapai (" .. caughtCount .. "/" .. sellCountThreshold .. "). Menjual...")
                 local ok, info = performSell()
                 if ok then
-                    Rayfield:Notify({Title = "Auto Sell", Content = "Sukses menjual " .. caughtCount .. " ikan lewat " .. info, Duration = 4})
+                    Rayfield:Notify({Title = "Auto Sell", Content = "Sukses menjual " .. caughtCount .. " ikan: " .. info, Duration = 4})
                 end
                 caughtCount = 0
             end
@@ -1880,6 +2103,7 @@ end)
 
 -- Jalankan scan pertama saat load
 task.spawn(performSell)
+task.spawn(cacheFishConfig)
 
 print("[F&M] Script fully initialized! Load config or customize toggles.")
 Rayfield:Notify({
@@ -1887,4 +2111,5 @@ Rayfield:Notify({
     Content = "Script loaded successfully! Remote Bypass is ready.",
     Duration = 5
 })
+
 
