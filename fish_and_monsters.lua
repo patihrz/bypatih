@@ -463,6 +463,7 @@ local function runBlatantFishingCycle()
     local StartPulling        = findKnitRemote("FishingReplicationService", "StartPulling")
     local StopFishing         = findKnitRemote("FishingReplicationService", "StopFishing")
     local FishingPullInput    = findKnitRemote("FishingRewardService",      "FishingPullInput")
+    local FishCaught          = findKnitRemote("FishingRewardService",      "FishCaught") -- RemoteEvent
     local RequestPreview      = findKnitRemote("AssetPreviewService",       "RequestPreview")
     local ReleasePreview      = findKnitRemote("AssetPreviewService",       "ReleasePreview")
 
@@ -471,24 +472,15 @@ local function runBlatantFishingCycle()
     end
 
     equipRod()
-    -- Deteksi joran (contoh: DryardRod)
-    local rod = getRod()
-    local activeRodName = rod and rod.Name or rodNameInput
-    
-    -- Deteksi floater
-    local activeFloaterName = floaterNameInput
-    for k, v in pairs(LP:GetAttributes()) do
-        if type(v) == "string" and (k:lower():find("floater") or v:lower():find("floater")) and v ~= "" then
-            activeFloaterName = v
-            break
-        end
-    end
+
+    -- Baca rod dan floater langsung dari attribute LP (paling akurat!)
+    local activeRodName     = LP:GetAttribute("FishingCastRodId") or rodNameInput
+    local activeFloaterName = LP:GetAttribute("FishingCastFloaterId") or floaterNameInput
 
     -- Reset state
     pcall(function() StopFishing:InvokeServer() end)
     task.wait(0.1)
 
-    -- StartFishing (sesuai urutan Cobalt log)
     if StartFishing then
         pcall(function() StartFishing:InvokeServer(activeRodName, activeFloaterName) end)
     end
@@ -500,24 +492,54 @@ local function runBlatantFishingCycle()
     local origin = hrp.Position
     local target = getWaterTarget(origin)
     local floatConfig = {LightInfluence=0, FaceCamera=true, Color=Color3.new(0.94,0.31,1), Transparency=0.02, LightEmission=1, Width=0.24}
-
-    -- Catat UUID sebelum lempar (untuk deteksi perubahan)
     local oldCastId = LP:GetAttribute("FishingCastId") or ""
+
+    -- Pasang listener FishCaught SEBELUM throw agar tidak miss event!
+    local caughtFishName = nil
+    local fishCaughtConn
+    if FishCaught and FishCaught:IsA("RemoteEvent") then
+        fishCaughtConn = FishCaught.OnClientEvent:Connect(function(...)
+            local args = {...}
+            print("[F&M Blatant] FishCaught event fired! Args count: " .. #args)
+            for i, v in ipairs(args) do
+                if type(v) == "string" and v ~= "" and not v:match("^%x+-%x+-%x+-%x+-%x+$") then
+                    caughtFishName = v
+                    print("[F&M Blatant] Fish name from event: " .. v)
+                elseif type(v) == "table" then
+                    local name = extractFishName(v)
+                    if name then
+                        caughtFishName = name
+                        print("[F&M Blatant] Fish name from event table: " .. name)
+                    end
+                else
+                    print("[F&M Blatant]   event arg[" .. i .. "] = " .. tostring(v) .. " (" .. typeof(v) .. ")")
+                end
+            end
+        end)
+        print("[F&M Blatant] FishCaught listener aktif.")
+    else
+        warn("[F&M Blatant] FishCaught RemoteEvent TIDAK DITEMUKAN di FishingRewardService!")
+    end
 
     -- ThrowFloater
     pcall(function() ThrowFloater:InvokeServer(origin, target, activeRodName, activeFloaterName, floatConfig, 2.5) end)
     task.wait(0.3)
-    if not autoBlatantFishing then return end
+    if not autoBlatantFishing then
+        if fishCaughtConn then fishCaughtConn:Disconnect() end
+        return
+    end
 
     -- ConfirmFloatingCast
     pcall(function() ConfirmFloatingCast:InvokeServer(target) end)
 
-    -- Tunggu server assign FishingCastId baru (max 6 detik)
-    -- Ini tanda server sudah siap, ikan sudah gigit pelampung
+    -- Tunggu FishingCastId berubah (max 6 detik = server assign ikan ke pelampung)
     local uuid = nil
     local waited = 0
     while waited < 6 do
-        if not autoBlatantFishing then return end
+        if not autoBlatantFishing then
+            if fishCaughtConn then fishCaughtConn:Disconnect() end
+            return
+        end
         local castId = LP:GetAttribute("FishingCastId")
         if castId and castId ~= "" and castId ~= oldCastId then
             uuid = castId
@@ -528,7 +550,7 @@ local function runBlatantFishingCycle()
     end
 
     if not uuid then
-        -- Timeout: tidak ada bite dalam 6 detik, reset dan coba lagi
+        if fishCaughtConn then fishCaughtConn:Disconnect() end
         pcall(function() StopFishing:InvokeServer() end)
         return
     end
@@ -539,82 +561,50 @@ local function runBlatantFishingCycle()
     pcall(function() StartPulling:InvokeServer() end)
     task.wait(0.05)
 
-    -- "begin" dulu (sesuai log Cobalt)
+    -- "begin" dulu
     pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
     task.wait(0.05)
-    -- Spam 18 "tap" inputs sekuensial dengan jeda 15ms
-    local lastResult = nil
-    for i = 1, 18 do
+
+    -- 10 taps (sesuai urutan game asli dari Hydroxide spy)
+    for i = 1, 10 do
         if not autoBlatantFishing then break end
-        local ok, res = pcall(function() return FishingPullInput:InvokeServer(uuid, "tap") end)
-        if ok and res then
-            lastResult = res
-            if type(res) == "table" then
-                print("[F&M Blatant] Tap #" .. i .. " returned table:")
-                dumpTable(res)
-            else
-                print("[F&M Blatant] Tap #" .. i .. " returned: " .. tostring(res))
-            end
-        end
-        task.wait(0.015)
+        pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
+        task.wait(0.02)
     end
 
-    print("[F&M Blatant] Finished sending taps. Checking response...")
-    
-    task.wait(0.2)
+    print("[F&M Blatant] Taps sent. Menunggu FishCaught event (max 3s)...")
 
-    -- Ambil nama ikan dari response remote tap jika ada
-    local caughtFish = extractFishName(lastResult)
-
-    -- Jika tidak ketemu di remote return, scan attribute (dengan proteksi rod/floater/cast/id)
-    if not caughtFish then
-        for k, v in pairs(LP:GetAttributes()) do
-            if type(v) == "string" and v ~= "" then
-                local kl = k:lower()
-                -- Cari kata 'fish' tapi abaikan rod, floater, equip, tool, cast, dan id (seperti FishingCastId)
-                if kl:find("fish") and not (kl:find("rod") or kl:find("floater") or kl:find("equip") or kl:find("tool") or kl:find("cast") or kl:find("id")) then
-                    caughtFish = v
-                    break
-                end
-            end
-        end
-    end
-    if not caughtFish and char then
-        for k, v in pairs(char:GetAttributes()) do
-            if type(v) == "string" and v ~= "" then
-                local kl = k:lower()
-                if kl:find("fish") and not (kl:find("rod") or kl:find("floater") or kl:find("equip") or kl:find("tool") or kl:find("cast") or kl:find("id")) then
-                    caughtFish = v
-                    break
-                end
-            end
-        end
+    -- Tunggu FishCaught event max 3 detik
+    local wt = 0
+    while wt < 3 and not caughtFishName do
+        task.wait(0.05)
+        wt = wt + 0.05
     end
 
-    -- Debug print all attributes jika masih belum terdeteksi (membantu trace nama key aslinya)
-    if not caughtFish then
-        print("[F&M Blatant Debug] Scan attribute failed. Printing all LP attributes:")
-        for k, v in pairs(LP:GetAttributes()) do
-            print("   " .. k .. " = " .. tostring(v) .. " (" .. typeof(v) .. ")")
-        end
+    if fishCaughtConn then fishCaughtConn:Disconnect() end
+
+    if not caughtFishName then
+        print("[F&M Blatant] FishCaught tidak diterima dalam 3s! Fallback NurseShark.")
+        caughtFishName = "NurseShark"
     end
 
-    -- Fallback nama ikan default jika tidak terdeteksi (agar remote preview tetap berjalan)
-    caughtFish = caughtFish or "NurseShark" 
-
-    -- Kirim RequestPreview dan ReleasePreview untuk claim & hilangkan UI
+    -- Urutan akhir sesuai Hydroxide: RequestPreview → StopFishing → ReleasePreview x2
     if RequestPreview then
-        print("[F&M Blatant] Sending RequestPreview for: " .. tostring(caughtFish))
-        pcall(function() RequestPreview:InvokeServer("FishModels", caughtFish, nil) end)
+        print("[F&M Blatant] RequestPreview: " .. tostring(caughtFishName))
+        pcall(function() RequestPreview:InvokeServer("FishModels", caughtFishName, nil) end)
     end
     task.wait(0.15)
+
+    pcall(function() StopFishing:InvokeServer() end)
+    task.wait(0.15)
+
     if ReleasePreview then
-        print("[F&M Blatant] Sending ReleasePreview for: " .. tostring(caughtFish))
-        pcall(function() ReleasePreview:InvokeServer(caughtFish, nil) end)
+        print("[F&M Blatant] ReleasePreview x2: " .. tostring(caughtFishName))
+        pcall(function() ReleasePreview:InvokeServer(caughtFishName, nil) end)
+        task.wait(0.05)
+        pcall(function() ReleasePreview:InvokeServer(caughtFishName, nil) end)
     end
 
-    task.wait(0.5)
-    pcall(function() StopFishing:InvokeServer() end)
     print("[F&M Blatant] Cycle completed!")
 end
 
