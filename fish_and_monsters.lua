@@ -1057,6 +1057,47 @@ TabDeveloper:CreateButton({
 })
 
 TabDeveloper:CreateButton({
+    Name = "[DEBUG] Fishing Diagnosis (Check Console!)",
+    Callback = function()
+        print("=== FISHING REMOTE DIAGNOSIS ===")
+        
+        -- Scan specific services
+        local servicesToScan = {"FishingRewardService", "FishingReplicationService", "AssetPreviewService"}
+        local rep = game:GetService("ReplicatedStorage")
+        local packages = rep:FindFirstChild("Packages")
+        if packages then
+            local index = packages:FindFirstChild("_Index")
+            if index then
+                for _, child in ipairs(index:GetChildren()) do
+                    if child.Name:find("sleitnick_knit") then
+                        local services = child:FindFirstChild("Services", true)
+                        if services then
+                            for _, sName in ipairs(servicesToScan) do
+                                local sObj = services:FindFirstChild(sName)
+                                if sObj then
+                                    print("Service Found: " .. sObj:GetFullName())
+                                    for _, folder in ipairs(sObj:GetChildren()) do
+                                        if folder.Name == "RF" or folder.Name == "RE" then
+                                            for _, remote in ipairs(folder:GetChildren()) do
+                                                print("  [" .. folder.Name .. "] " .. remote.Name .. " (" .. remote.ClassName .. ")")
+                                            end
+                                        end
+                                    end
+                                else
+                                    print("Service NOT Found in " .. child.Name .. ": " .. sName)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        print("=== END FISHING DIAGNOSIS ===")
+        Rayfield:Notify({Title = "Diagnosis Done!", Content = "Check console output!", Duration = 3})
+    end
+})
+
+TabDeveloper:CreateButton({
     Name = "Scan Visible GUI Buttons",
     Callback = function()
         print("=== VISIBLE BUTTONS LIST ===")
