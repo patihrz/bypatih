@@ -19,9 +19,19 @@ local success, Rayfield = pcall(function()
     return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 end)
 
-if not success then
-    warn("[F&M] Failed to load Rayfield: " .. tostring(Rayfield))
-    return
+if not success or type(Rayfield) ~= "table" then
+    warn("[F&M] Failed to load Rayfield from primary source: " .. tostring(Rayfield))
+    -- Fallback ke repository Github resmi shlexware jika sirius.menu bermasalah
+    local altSuccess, altRayfield = pcall(function()
+        return loadstring(game:HttpGet("https://raw.githubusercontent.com/shlexware/Rayfield/main/source.lua"))()
+    end)
+    if altSuccess and type(altRayfield) == "table" then
+        Rayfield = altRayfield
+        print("[F&M] Rayfield loaded successfully from fallback source!")
+    else
+        warn("[F&M] Failed to load Rayfield from fallback: " .. tostring(altRayfield))
+        return
+    end
 end
 
 print("[F&M] Rayfield loaded successfully!")
