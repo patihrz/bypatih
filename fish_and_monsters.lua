@@ -168,6 +168,26 @@ local function extractUUID(val)
     return nil
 end
 
+-- Extract fish name recursively from server response tables
+local function extractFishName(data)
+    if type(data) ~= "table" then return nil end
+    local keys = {"FishName", "fishName", "Name", "name", "Id", "id", "ItemId", "itemId", "Type", "type"}
+    for _, k in ipairs(keys) do
+        if data[k] and type(data[k]) == "string" and data[k] ~= "" then
+            return data[k]
+        end
+    end
+    for k, v in pairs(data) do
+        if type(v) == "string" and #v > 2 and not (v:match("^%x+-%x+-%x+-%x+-%x+$") or #v == 36) and v ~= "tap" and v ~= "begin" then
+            return v
+        elseif type(v) == "table" then
+            local res = extractFishName(v)
+            if res then return res end
+        end
+    end
+    return nil
+end
+
 -- Robust Knit Remote Lookup
 local function findKnitRemote(serviceName, remoteName)
     local rep = game:GetService("ReplicatedStorage")
@@ -430,6 +450,8 @@ local function runBlatantFishingCycle()
     local StartPulling        = findKnitRemote("FishingReplicationService", "StartPulling")
     local StopFishing         = findKnitRemote("FishingReplicationService", "StopFishing")
     local FishingPullInput    = findKnitRemote("FishingRewardService",      "FishingPullInput")
+    local RequestPreview      = findKnitRemote("AssetPreviewService",       "RequestPreview")
+    local ReleasePreview      = findKnitRemote("AssetPreviewService",       "ReleasePreview")
 
     if not (ThrowFloater and ConfirmFloatingCast and StartPulling and StopFishing and FishingPullInput) then
         warn("[F&M Blatant] Missing remotes!") return
@@ -497,17 +519,53 @@ local function runBlatantFishingCycle()
     pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
     task.wait(0.05)
 
-    -- Spam 12 "tap" inputs sequentially with 0.015s delay to avoid same-frame rate-limiting
+    -- Spam 12 "tap" inputs sequentially dengan jeda 15ms
     for i = 1, 12 do
         if not autoBlatantFishing then break end
         pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
         task.wait(0.015)
     end
 
-    print("[F&M Blatant] Finished sending taps.")
-    -- Hapus StopFishing di sini agar server menyelesaikan tangkapan secara alami.
-    -- Jika dipanggil StopFishing, server akan membatalkan sesi dan ikan tidak didapat.
-    task.wait(1.5) -- Beri waktu client memproses animasi catch
+    print("[F&M Blatant] Finished sending taps. Checking response...")
+    
+    -- Tunggu 0.2 detik agar server memproses tangkapan dan menyimpan nama ikan di attribute
+    task.wait(0.2)
+
+    -- Ambil nama ikan dari response attribute jika ada
+    local caughtFish = nil
+    -- Scan semua attribute character/player yang mungkin menyimpan nama ikan terakhir
+    for k, v in pairs(LP:GetAttributes()) do
+        if type(v) == "string" and k:lower():find("fish") and v ~= "" then
+            caughtFish = v
+            break
+        end
+    end
+    if not caughtFish and char then
+        for k, v in pairs(char:GetAttributes()) do
+            if type(v) == "string" and k:lower():find("fish") and v ~= "" then
+                caughtFish = v
+                break
+            end
+        end
+    end
+
+    -- Fallback nama ikan default jika tidak terdeteksi (agar remote preview tetap berjalan)
+    caughtFish = caughtFish or "NurseShark" 
+
+    -- Kirim RequestPreview dan ReleasePreview untuk claim & hilangkan UI
+    if RequestPreview then
+        print("[F&M Blatant] Sending RequestPreview for: " .. tostring(caughtFish))
+        pcall(function() RequestPreview:InvokeServer("FishModels", caughtFish, nil) end)
+    end
+    task.wait(0.1)
+    if ReleasePreview then
+        print("[F&M Blatant] Sending ReleasePreview for: " .. tostring(caughtFish))
+        pcall(function() ReleasePreview:InvokeServer(caughtFish, nil) end)
+    end
+
+    task.wait(0.5)
+    pcall(function() StopFishing:InvokeServer() end)
+    print("[F&M Blatant] Cycle completed!")
 end
 
 -- Blatant Fishing Loop Thread
