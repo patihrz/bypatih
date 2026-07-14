@@ -524,27 +524,37 @@ task.spawn(function()
     end
 end)
 
--- Auto Catch Assist Loop Thread (BLATANT: paralel tap, no delay)
+-- Auto Catch Assist Loop Thread
+-- Dipakai dengan AFK mode game — jangan jalankan bersama Blatant Mode!
 local lastAssistId = nil
+local cachedAssistPullInput = nil
 task.spawn(function()
     while true do
         task.wait(0.05)
         if autoCatchAssist then
+            -- Cache remote sekali saja
+            if not cachedAssistPullInput then
+                cachedAssistPullInput = findKnitRemote("FishingRewardService", "FishingPullInput")
+            end
             local castId = LP:GetAttribute("FishingCastId")
             if castId and castId ~= "" and castId ~= lastAssistId then
                 lastAssistId = castId
                 print("[F&M Assist] Bite! UUID: " .. tostring(castId))
-                local FishingPullInput = findKnitRemote("FishingRewardService", "FishingPullInput")
-                if FishingPullInput then
-                    -- Paralel spam 30 tap serentak
+                if cachedAssistPullInput then
+                    -- "begin" dulu (sesuai urutan game asli)
+                    pcall(function() cachedAssistPullInput:InvokeServer(castId, "begin") end)
+                    task.wait(0.05)
+                    -- Lalu spam 30 "tap" paralel serentak
                     for i = 1, 30 do
                         task.spawn(function()
-                            pcall(function() FishingPullInput:InvokeServer(castId, "tap") end)
+                            pcall(function() cachedAssistPullInput:InvokeServer(castId, "tap") end)
                         end)
                     end
                     print("[F&M Assist] Caught!")
                 end
             end
+        else
+            cachedAssistPullInput = nil
         end
     end
 end)
