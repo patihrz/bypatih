@@ -132,6 +132,21 @@ local function findRaidOrb()
     return nil
 end
 
+-- Extract UUID from various data structures recursively
+local function extractUUID(val)
+    if type(val) == "string" then
+        if val:match("^%x+-%x+-%x+-%x+-%x+$") or #val == 36 then
+            return val
+        end
+    elseif type(val) == "table" then
+        for k, v in pairs(val) do
+            local res = extractUUID(v)
+            if res then return res end
+        end
+    end
+    return nil
+end
+
 -- Robust Knit Remote Lookup
 local function findKnitRemote(serviceName, remoteName)
     local rep = game:GetService("ReplicatedStorage")
