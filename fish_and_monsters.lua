@@ -927,19 +927,31 @@ local function detectBossFromEvents()
     local ok, result = pcall(function() return GetActiveEvents:InvokeServer() end)
     if ok and type(result) == "table" then
         print("[F&M Boss Spy] GetActiveEvents returned table:")
-        -- Cari string mana pun di keys atau values (tanpa batasan _SM)
+        -- Cari string mana pun di keys atau values yang merepresentasikan model nyata di workspace
         for k, v in pairs(result) do
-            -- Validasi key string (bukan internal settings)
+            -- Validasi key string
             if type(k) == "string" and k ~= "" and not (k == "status" or k == "time" or k == "active") then
-                return k
-            elseif type(v) == "string" and v ~= "" and not (v == "status" or v == "time" or v == "active") then
-                return v
-            elseif type(v) == "table" then
+                -- Cek apakah nama ini adalah model yang ada di workspace
+                if workspace:FindFirstChild(k, true) then
+                    return k
+                end
+            end
+            if type(v) == "string" and v ~= "" and not (v == "status" or v == "time" or v == "active") then
+                if workspace:FindFirstChild(v, true) then
+                    return v
+                end
+            end
+            if type(v) == "table" then
                 for k2, v2 in pairs(v) do
                     if type(k2) == "string" and k2 ~= "" and not (k2 == "status" or k2 == "time" or k2 == "active") then
-                        return k2
-                    elseif type(v2) == "string" and v2 ~= "" and not (v2 == "status" or v2 == "time" or v2 == "active") then
-                        return v2
+                        if workspace:FindFirstChild(k2, true) then
+                            return k2
+                        end
+                    end
+                    if type(v2) == "string" and v2 ~= "" and not (v2 == "status" or v2 == "time" or v2 == "active") then
+                        if workspace:FindFirstChild(v2, true) then
+                            return v2
+                        end
                     end
                 end
             end
@@ -956,6 +968,7 @@ local function findActiveBossName()
         print("[F&M Boss] Found boss via GetActiveEvents remote: " .. bossFromRemote)
         return bossFromRemote
     end
+
 
     -- 2. Fallback A: scan workspace descendants untuk pola _SM
     for _, obj in ipairs(Workspace:GetDescendants()) do
@@ -1240,16 +1253,13 @@ task.spawn(function()
             end
 
             if cachedPlayerTap and activeBossName then
-                -- Kirim 12 tap sekuensial dengan jeda 15ms untuk mencegah proteksi spam server
-                for i = 1, 12 do
-                    if not autoTapBoss then break end
-                    task.spawn(function()
-                        pcall(function()
-                            cachedPlayerTap:InvokeServer(activeBossName)
-                        end)
+                -- Kirim satu tap per loop cycle untuk mencegah proteksi spam server
+                -- Kecepatan spam dikontrol penuh oleh user via slider bossTapDelay
+                task.spawn(function()
+                    pcall(function()
+                        cachedPlayerTap:InvokeServer(activeBossName)
                     end)
-                    task.wait(0.015)
-                end
+                end)
             end
         else
             cachedPlayerTap = nil
@@ -1732,6 +1742,7 @@ end
 
 -- Helper: cari rarity berdasarkan FishId dari cache config
 local function getFishRarity(fishId)
+    if not fishId then return "Common" end
     if not next(fishConfigCache) then cacheFishConfig() end
     local cfg = fishConfigCache[fishId]
     if cfg then
@@ -1739,7 +1750,7 @@ local function getFishRarity(fishId)
     end
     -- Fallback case-insensitive
     for name, data in pairs(fishConfigCache) do
-        if name:lower() == fishId:lower() then
+        if name and name:lower() == fishId:lower() then
             return data.Rarity or data.rarity or data.RarityId or "Common"
         end
     end
@@ -1752,11 +1763,14 @@ local function getInventoryFish()
     
     -- JALUR 1: Scan Knit Client Controllers (Paling Umum di Knit)
     local Knit = getKnitClient()
-    if Knit then
+    if Knit and type(Knit.Controllers) == "table" then
         -- Cari controller yang menangani data inventory
         local controllers = {"InventoryController", "FishInventoryController", "FishController", "PlayerController", "FishermanShopController"}
         for _, ctrlName in ipairs(controllers) do
-            local ctrl = Knit.Controllers[ctrlName]
+            local ctrl = nil
+            pcall(function() 
+                ctrl = Knit.Controllers[ctrlName] or (typeof(Knit.GetController) == "function" and Knit:GetController(ctrlName)) 
+            end)
             if ctrl then
                 local invData = nil
                 -- Coba panggil method get inventory
@@ -1768,7 +1782,9 @@ local function getInventoryFish()
                 end
                 -- Coba baca property langsung
                 if not invData then
-                    invData = ctrl.Inventory or ctrl.InventoryData or ctrl.inventory or ctrl._inventory
+                    pcall(function()
+                        invData = ctrl.Inventory or ctrl.InventoryData or ctrl.inventory or ctrl._inventory
+                    end)
                 end
                 
                 if type(invData) == "table" then
@@ -1797,6 +1813,7 @@ local function getInventoryFish()
             end
         end
     end
+
     
     -- JALUR 2: Scan LocalPlayer folders (Data / Inventory)
     if #fishList == 0 then
