@@ -1230,18 +1230,34 @@ task.spawn(function()
     end
 end)
 
+-- Helper: cari remote tap boss secara fleksibel
+local function findBossTapRemote()
+    local r = findKnitRemote("BossFishEventService", "PlayerTap")
+    if r then return r end
+    
+    -- Fallback: scan seluruh ReplicatedStorage untuk nama remote yang mendekati
+    for _, obj in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+            local name = obj.Name:lower()
+            if name == "playertap" or name == "bosstap" or name == "raidtap" or name == "tap" or name == "clickboss" or name == "bossclick" then
+                print("[F&M Boss Finder] Found tap remote: " .. obj:GetFullName())
+                return obj
+            end
+        end
+    end
+    return nil
+end
+
 -- Auto Tap Boss Loop (dengan cache remote + debug verbose)
 task.spawn(function()
     while true do
         task.wait(bossTapDelay)
         if autoTapBoss then
-            -- Cache PlayerTap sekali saja
-            if not cachedPlayerTap then
-                cachedPlayerTap = findKnitRemote("BossFishEventService", "PlayerTap")
+            -- Cache PlayerTap secara dinamis
+            if not cachedPlayerTap or not cachedPlayerTap.Parent then
+                cachedPlayerTap = findBossTapRemote()
                 if cachedPlayerTap then
-                    print("[F&M Boss] PlayerTap remote FOUND: " .. cachedPlayerTap:GetFullName())
-                else
-                    warn("[F&M Boss] PlayerTap remote NIL - BossFishEventService tidak ditemukan!")
+                    print("[F&M Boss] Active Tap Remote: " .. cachedPlayerTap:GetFullName())
                 end
             end
 
@@ -1297,10 +1313,14 @@ task.spawn(function()
                     end
                 end
 
-                -- Kirim satu tap per loop cycle (tanpa blokir, selalu spam remote)
+                -- Kirim satu tap per loop cycle (tanpa blokir, otomatis menyesuaikan RemoteEvent/RemoteFunction)
                 task.spawn(function()
                     pcall(function()
-                        cachedPlayerTap:InvokeServer(targetName)
+                        if cachedPlayerTap:IsA("RemoteFunction") then
+                            cachedPlayerTap:InvokeServer(targetName)
+                        else
+                            cachedPlayerTap:FireServer(targetName)
+                        end
                     end)
                 end)
             end
