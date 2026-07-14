@@ -426,24 +426,23 @@ end)
 local function runBlatantFishingCycle()
     local ThrowFloater        = findKnitRemote("FishingReplicationService", "ThrowFloater")
     local ConfirmFloatingCast = findKnitRemote("FishingReplicationService", "ConfirmFloatingCast")
-    local RequestFishBite     = findKnitRemote("FishingRewardService",      "RequestFishBite")
     local StartFishing        = findKnitRemote("FishingReplicationService", "StartFishing")
     local StartPulling        = findKnitRemote("FishingReplicationService", "StartPulling")
     local StopFishing         = findKnitRemote("FishingReplicationService", "StopFishing")
     local FishingPullInput    = findKnitRemote("FishingRewardService",      "FishingPullInput")
 
-    if not (ThrowFloater and ConfirmFloatingCast and RequestFishBite and StartPulling and StopFishing and FishingPullInput) then
+    if not (ThrowFloater and ConfirmFloatingCast and StartPulling and StopFishing and FishingPullInput) then
         warn("[F&M Blatant] Missing remotes!") return
     end
 
     equipRod()
     if not autoBlatantFishing then return end
 
-    -- Reset
+    -- Reset state
     pcall(function() StopFishing:InvokeServer() end)
-    task.wait(0.05)
+    task.wait(0.1)
 
-    -- StartFishing (dari log Cobalt, dipanggil sebelum ThrowFloater)
+    -- StartFishing (sesuai urutan Cobalt log)
     if StartFishing then
         pcall(function() StartFishing:InvokeServer(rodNameInput, floaterNameInput) end)
     end
@@ -456,36 +455,49 @@ local function runBlatantFishingCycle()
     local target = getWaterTarget(origin)
     local floatConfig = {LightInfluence=0, FaceCamera=true, Color=Color3.new(0.94,0.31,1), Transparency=0.02, LightEmission=1, Width=0.24}
 
+    -- Catat UUID sebelum lempar (untuk deteksi perubahan)
+    local oldCastId = LP:GetAttribute("FishingCastId") or ""
+
     -- ThrowFloater
     pcall(function() ThrowFloater:InvokeServer(origin, target, rodNameInput, floaterNameInput, floatConfig, 2.5) end)
-    task.wait(0.4) -- minimum server register
+    task.wait(0.3)
     if not autoBlatantFishing then return end
 
     -- ConfirmFloatingCast
     pcall(function() ConfirmFloatingCast:InvokeServer(target) end)
 
-    -- RequestFishBite LANGSUNG (no wait)
+    -- Tunggu server assign FishingCastId baru (max 6 detik)
+    -- Ini tanda server sudah siap, ikan sudah gigit pelampung
     local uuid = nil
-    local biteOk, biteData = pcall(function()
-        return RequestFishBite:InvokeServer(target + Vector3.new(0, 0.1, 0))
-    end)
-    if biteOk and type(biteData) == "table" then
-        uuid = biteData.SessionId or biteData.sessionId or biteData.castId or extractUUID(biteData)
+    local waited = 0
+    while waited < 6 do
+        if not autoBlatantFishing then return end
+        local castId = LP:GetAttribute("FishingCastId")
+        if castId and castId ~= "" and castId ~= oldCastId then
+            uuid = castId
+            break
+        end
+        task.wait(0.1)
+        waited = waited + 0.1
     end
-    if not uuid then uuid = LP:GetAttribute("FishingCastId") end
-    if not uuid then return end
 
-    print("[F&M Blatant] UUID: " .. tostring(uuid))
+    if not uuid then
+        -- Timeout: tidak ada bite dalam 6 detik, reset dan coba lagi
+        pcall(function() StopFishing:InvokeServer() end)
+        return
+    end
+
+    print("[F&M Blatant] Bite! UUID: " .. tostring(uuid))
 
     -- StartPulling
     pcall(function() StartPulling:InvokeServer() end)
-    task.wait(0.1) -- beri waktu server siap
+    task.wait(0.05)
 
-    -- "begin" dulu (dari log Cobalt: FishingPullInput pertama pakai "begin")
+    -- "begin" dulu (sesuai log Cobalt)
     pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
     task.wait(0.05)
 
-    -- Lalu spam 30 "tap" PARALEL serentak
+    -- Spam 30 "tap" paralel serentak
     for i = 1, 30 do
         if not autoBlatantFishing then break end
         task.spawn(function()
@@ -493,14 +505,15 @@ local function runBlatantFishingCycle()
         end)
     end
 
-    task.wait(0.5) -- tunggu server proses semua tap sebelum stop
+    task.wait(0.5) -- tunggu server proses
     pcall(function() StopFishing:InvokeServer() end)
+    print("[F&M Blatant] Caught!")
 end
 
 -- Blatant Fishing Loop Thread
 task.spawn(function()
     while true do
-        task.wait(0.05)
+        task.wait(0.1)
         if autoBlatantFishing then
             local ok, err = pcall(runBlatantFishingCycle)
             if not ok then
