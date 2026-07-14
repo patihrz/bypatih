@@ -307,7 +307,7 @@ local function runRemoteFishingCycle()
     if not hrp then return end
 
     local origin = hrp.Position
-    local target = origin + hrp.CFrame.LookVector * 15
+    local target = origin + hrp.CFrame.LookVector * 8 + Vector3.new(0, -4.5, 0)
 
     -- 1. Throw Floater
     print("[F&M Remote Farm] 1. Casting Floater...")
