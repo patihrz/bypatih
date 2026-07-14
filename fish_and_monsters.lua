@@ -930,7 +930,7 @@ TabDeveloper:CreateButton({
     end
 })
 
--- Metatable Hooking for Remote Spy
+-- Metatable Hooking for Remote Spy (Dengan deep table serialization)
 local hookSuccess, err = pcall(function()
     local mt = getrawmetatable(game)
     local oldNamecall = mt.__namecall
@@ -940,10 +940,16 @@ local hookSuccess, err = pcall(function()
         local method = getnamecallmethod()
         if remoteSpyEnabled and (method == "FireServer" or method == "InvokeServer") then
             local args = {...}
-            print("[Remote Fired] Path: " .. self:GetFullName() .. " | Method: " .. method)
+            print("[Remote Spy] Fired: " .. self:GetFullName() .. " | Method: " .. method)
             if #args > 0 then
                 for i, v in ipairs(args) do
-                    print(string.format("   [%d]: %s (%s)", i, tostring(v), typeof(v)))
+                    if type(v) == "table" then
+                        print(string.format("   [%d] (table): {", i))
+                        dumpTable(v, "      ")
+                        print("   }")
+                    else
+                        print(string.format("   [%d] (%s): %s", i, typeof(v), tostring(v)))
+                    end
                 end
             else
                 print("   Arguments: None")
