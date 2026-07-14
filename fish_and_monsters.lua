@@ -334,33 +334,28 @@ local function runRemoteFishingCycle()
         uuid = extractUUID(pullResult)
     end
 
-    -- Knit Controller Hook Fallback
+    -- Knit Controller Hook Fallback (Scan all controllers for UUID properties/values)
     if not uuid then
         print("[F&M Remote Farm] Fetching UUID from local Knit controllers...")
         local Knit = getKnitClient()
         if Knit then
-            local controllers = {"FishingController", "FishingRewardController", "FishingMinigameController"}
-            for _, ctrlName in ipairs(controllers) do
-                local success, ctrl = pcall(function() return Knit.GetController(ctrlName) end)
-                if success and ctrl then
-                    -- Look for uuid, sessionId, or similar properties
+            for ctrlName, ctrl in pairs(Knit.Controllers or {}) do
+                pcall(function()
                     for key, val in pairs(ctrl) do
-                        if type(key) == "string" and (key:lower():find("uuid") or key:lower():find("session") or key:lower():find("id")) then
-                            if type(val) == "string" and #val == 36 then
-                                uuid = val
-                                print("[F&M Knit Hook] Found UUID in controller (" .. ctrlName .. "." .. key .. "): " .. uuid)
+                        if type(val) == "string" and (val:match("^%x+-%x+-%x+-%x+-%x+$") or #val == 36) then
+                            uuid = val
+                            print("[F&M Knit Hook] Found UUID by value match in (" .. ctrlName .. "." .. key .. "): " .. uuid)
+                            break
+                        elseif type(val) == "table" then
+                            local temp = extractUUID(val)
+                            if temp then
+                                uuid = temp
+                                print("[F&M Knit Hook] Found UUID in table (" .. ctrlName .. "." .. key .. "): " .. uuid)
                                 break
-                            elseif type(val) == "table" then
-                                local temp = extractUUID(val)
-                                if temp then
-                                    uuid = temp
-                                    print("[F&M Knit Hook] Found UUID in controller table (" .. ctrlName .. "." .. key .. "): " .. uuid)
-                                    break
-                                end
                             end
                         end
                     end
-                end
+                end)
                 if uuid then break end
             end
         end
