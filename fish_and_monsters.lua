@@ -617,12 +617,49 @@ end)
 -- RAID EVENT TAB
 ----------------------------------------------------
 
+-- Helper: dapatkan nama boss aktif dari server event (Paling Akurat!)
+local function detectBossFromEvents()
+    local GetActiveEvents = findKnitRemote("BossFishEventService", "GetActiveEvents")
+    if not GetActiveEvents then return nil end
+    
+    local ok, result = pcall(function() return GetActiveEvents:InvokeServer() end)
+    if ok and type(result) == "table" then
+        print("[F&M Boss Spy] GetActiveEvents returned table:")
+        -- Cari string yang diakhiri _SM di keys atau values
+        for k, v in pairs(result) do
+            if type(k) == "string" and k:match("_SM$") then
+                return k
+            elseif type(v) == "string" and v:match("_SM$") then
+                return v
+            elseif type(v) == "table" then
+                for k2, v2 in pairs(v) do
+                    if type(k2) == "string" and k2:match("_SM$") then
+                        return k2
+                    elseif type(v2) == "string" and v2:match("_SM$") then
+                        return v2
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
 -- Helper: scan workspace for active boss model name (pola _SM)
 local function findActiveBossName()
+    -- 1. Coba lewat server event remote
+    local bossFromRemote = detectBossFromEvents()
+    if bossFromRemote then
+        print("[F&M Boss] Found boss via GetActiveEvents remote: " .. bossFromRemote)
+        return bossFromRemote
+    end
+
+    -- 2. Fallback: scan workspace descendants
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") then
             -- Nama boss biasanya diakhiri _SM (contoh: Windah_SM, Losi_SM, dll)
             if obj.Name:match("_SM$") then
+                print("[F&M Boss] Found boss model in workspace: " .. obj.Name)
                 return obj.Name
             end
         end
