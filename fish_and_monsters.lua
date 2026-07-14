@@ -542,36 +542,37 @@ local function runBlatantFishingCycle()
     -- "begin" dulu (sesuai log Cobalt)
     pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
     task.wait(0.05)
-
-    -- Spam 12 "tap" inputs sequentially dengan jeda 15ms dan tangkap hasil return terakhir
+    -- Spam 18 "tap" inputs sekuensial dengan jeda 15ms
     local lastResult = nil
-    for i = 1, 12 do
+    for i = 1, 18 do
         if not autoBlatantFishing then break end
         local ok, res = pcall(function() return FishingPullInput:InvokeServer(uuid, "tap") end)
         if ok and res then
             lastResult = res
+            if type(res) == "table" then
+                print("[F&M Blatant] Tap #" .. i .. " returned table:")
+                dumpTable(res)
+            else
+                print("[F&M Blatant] Tap #" .. i .. " returned: " .. tostring(res))
+            end
         end
         task.wait(0.015)
     end
 
     print("[F&M Blatant] Finished sending taps. Checking response...")
-    if lastResult then
-        print("[F&M Blatant] FishingPullInput return value:")
-        dumpTable(lastResult)
-    end
     
     task.wait(0.2)
 
     -- Ambil nama ikan dari response remote tap jika ada
     local caughtFish = extractFishName(lastResult)
 
-    -- Jika tidak ketemu di remote return, scan attribute (dengan proteksi rod/floater)
+    -- Jika tidak ketemu di remote return, scan attribute (dengan proteksi rod/floater/cast/id)
     if not caughtFish then
         for k, v in pairs(LP:GetAttributes()) do
             if type(v) == "string" and v ~= "" then
                 local kl = k:lower()
-                -- Cari kata 'fish' tapi ignore 'fishingfloater', 'fishingrod', dll
-                if kl:find("fish") and not (kl:find("rod") or kl:find("floater") or kl:find("equip") or kl:find("tool")) then
+                -- Cari kata 'fish' tapi abaikan rod, floater, equip, tool, cast, dan id (seperti FishingCastId)
+                if kl:find("fish") and not (kl:find("rod") or kl:find("floater") or kl:find("equip") or kl:find("tool") or kl:find("cast") or kl:find("id")) then
                     caughtFish = v
                     break
                 end
@@ -582,7 +583,7 @@ local function runBlatantFishingCycle()
         for k, v in pairs(char:GetAttributes()) do
             if type(v) == "string" and v ~= "" then
                 local kl = k:lower()
-                if kl:find("fish") and not (kl:find("rod") or kl:find("floater") or kl:find("equip") or kl:find("tool")) then
+                if kl:find("fish") and not (kl:find("rod") or kl:find("floater") or kl:find("equip") or kl:find("tool") or kl:find("cast") or kl:find("id")) then
                     caughtFish = v
                     break
                 end
