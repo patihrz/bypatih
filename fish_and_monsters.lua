@@ -49,6 +49,7 @@ local floaterNameInput = "Floater_Doll"
 local autoJoinRaid = false
 local autoTapBoss = false
 local bossTapDelay = 0.01
+local activeBossName = nil
 
 local remoteSpyEnabled = false
 
@@ -366,10 +367,10 @@ local function runRemoteFishingCycle()
 
     if not autoFishingRemote then return end
 
-    -- 2. Confirm Floating Cast
+    -- 2. Confirm Floating Cast (server needs target Vector3 = pelampung position)
     print("[F&M Remote Farm] 2. Confirming Cast...")
     local confirmSuccess, confirmResult = pcall(function() 
-        return ConfirmFloatingCast:InvokeServer() 
+        return ConfirmFloatingCast:InvokeServer(target)
     end)
     if confirmSuccess then
         print("[F&M Remote Farm] ConfirmFloatingCast Result:")
@@ -383,10 +384,12 @@ local function runRemoteFishingCycle()
 
     if not autoFishingRemote then return end
 
-    -- 3. Request Fish Bite
+    -- 3. Request Fish Bite (server needs target Vector3 = posisi ikan)
     print("[F&M Remote Farm] 3. Requesting Fish Bite...")
-    local biteSuccess, biteResult = pcall(function() 
-        return RequestFishBite:InvokeServer() 
+    local biteSuccess, biteResult = pcall(function()
+        -- Sedikit geser target biar posisi ikan != posisi pelampung persis
+        local fishPos = target + Vector3.new(0, 0.1, 0)
+        return RequestFishBite:InvokeServer(fishPos)
     end)
     if biteSuccess then
         print("[F&M Remote Farm] RequestFishBite Result:")
@@ -586,6 +589,20 @@ end)
 ----------------------------------------------------
 -- RAID EVENT TAB
 ----------------------------------------------------
+
+-- Helper: scan workspace for active boss model name (pola _SM)
+local function findActiveBossName()
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") then
+            -- Nama boss biasanya diakhiri _SM (contoh: Windah_SM, Losi_SM, dll)
+            if obj.Name:match("_SM$") then
+                return obj.Name
+            end
+        end
+    end
+    return nil
+end
+
 TabRaid:CreateSection("Raid Boss Controls")
 
 TabRaid:CreateButton({
@@ -614,12 +631,54 @@ TabRaid:CreateToggle({
     end
 })
 
+TabRaid:CreateSection("Boss Tap Spammer")
+
+TabRaid:CreateButton({
+    Name = "Scan Active Boss Name",
+    Callback = function()
+        local found = findActiveBossName()
+        if found then
+            activeBossName = found
+            print("[F&M Boss] Boss ditemukan: " .. found)
+            Rayfield:Notify({Title = "Boss Found!", Content = "Boss aktif: " .. found, Duration = 5})
+        else
+            print("[F&M Boss] Tidak ada boss aktif ditemukan di Workspace.")
+            Rayfield:Notify({Title = "Boss Not Found", Content = "Tidak ada boss _SM di workspace. Coba input manual.", Duration = 5})
+        end
+    end
+})
+
+TabRaid:CreateInput({
+    Name = "Boss Name (Manual Input)",
+    PlaceholderText = "Contoh: Windah_SM",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        if Text and Text ~= "" then
+            activeBossName = Text
+            print("[F&M Boss] Boss name di-set manual: " .. Text)
+            Rayfield:Notify({Title = "Boss Name Set", Content = "Boss: " .. Text, Duration = 3})
+        end
+    end
+})
+
 TabRaid:CreateToggle({
     Name = "Auto Tap Boss (Super Fast)",
     CurrentValue = false,
     Flag = "AutoTapBoss",
     Callback = function(value)
         autoTapBoss = value
+        if value then
+            -- Auto scan boss name saat toggle dinyalakan
+            local found = findActiveBossName()
+            if found then
+                activeBossName = found
+                print("[F&M Boss] Auto-detected boss: " .. found)
+                Rayfield:Notify({Title = "Boss Detected", Content = "Boss: " .. found, Duration = 3})
+            elseif not activeBossName then
+                warn("[F&M Boss] Boss name belum diset! Gunakan tombol Scan atau input manual.")
+                Rayfield:Notify({Title = "Warning", Content = "Boss name kosong! Scan dulu atau input manual.", Duration = 5})
+            end
+        end
     end
 })
 
@@ -651,44 +710,35 @@ task.spawn(function()
     end
 end)
 
--- Auto Tap Boss Loop (Direct PlayerTap Remote Spammer)
+-- Auto Tap Boss Loop
+-- Remote: BossFishEventService > RF > PlayerTap(bossName: string)
 task.spawn(function()
     while true do
         task.wait(bossTapDelay)
         if autoTapBoss then
-            pcall(function()
-                -- Direct lookup for PlayerTap in ReplicatedStorage
-                local PlayerTap = findKnitRemote("FishingRewardService", "PlayerTap") or ReplicatedStorage:FindFirstChild("PlayerTap", true)
-                
+            -- Coba auto-detect boss name setiap loop jika belum ada
+            if not activeBossName then
+                activeBossName = findActiveBossName()
+            end
+
+            if activeBossName then
+                local PlayerTap = findKnitRemote("BossFishEventService", "PlayerTap")
                 if PlayerTap then
-                    -- Detect whether it is a RemoteEvent or RemoteFunction
-                    if PlayerTap:IsA("RemoteEvent") then
-                        for i = 1, 100 do
-                            if not autoTapBoss then break end
-                            PlayerTap:FireServer()
-                        end
-                    elseif PlayerTap:IsA("RemoteFunction") then
-                        -- For RemoteFunctions, we spawn in coroutine so it doesn't wait for server response
-                        for i = 1, 50 do
-                            if not autoTapBoss then break end
-                            task.spawn(function()
-                                pcall(function()
-                                    PlayerTap:InvokeServer()
-                                end)
+                    -- InvokeServer dengan argument nama boss (sesuai log Cobalt)
+                    for i = 1, 20 do
+                        if not autoTapBoss then break end
+                        task.spawn(function()
+                            pcall(function()
+                                PlayerTap:InvokeServer(activeBossName)
                             end)
-                        end
+                        end)
                     end
                 else
-                    -- Fallback to ClickDetectors
-                    for _, desc in ipairs(Workspace:GetDescendants()) do
-                        if desc:IsA("ClickDetector") then
-                            if fireclickdetector then
-                                for i = 1, 10 do fireclickdetector(desc, 0) end
-                            end
-                        end
-                    end
+                    warn("[F&M Boss] PlayerTap remote tidak ditemukan di BossFishEventService!")
                 end
-            end)
+            else
+                warn("[F&M Boss] activeBossName nil! Gunakan tombol Scan Boss atau input manual.")
+            end
         end
     end
 end)
