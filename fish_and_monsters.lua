@@ -321,25 +321,51 @@ local function runRemoteFishingCycle()
     if not hrp then return end
 
     local origin = hrp.Position
-    
-    -- Live raycast to find the exact water surface Y level
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-    raycastParams.FilterDescendantsInstances = {char}
-    raycastParams.IgnoreWater = false -- Detect water terrain/parts
-    
+
     local lookOffset = hrp.CFrame.LookVector * 8
     local castPos = origin + lookOffset
-    local waterY = origin.Y - 4.5 -- Default fallback Y
-    
-    local result = Workspace:Raycast(Vector3.new(castPos.X, origin.Y + 5, castPos.Z), Vector3.new(0, -50, 0), raycastParams)
-    if result then
-        waterY = result.Position.Y
-        print("[F&M Remote Farm] Detected water surface Y level: " .. tostring(waterY) .. " (Instance: " .. result.Instance:GetFullName() .. ")")
-    else
-        print("[F&M Remote Farm] Raycast missed water, using fallback Y level: " .. tostring(waterY))
+    local waterY = nil
+
+    -- Raycast #1: hanya cari Terrain saja (material Water)
+    -- Ini memastikan lantai/platform tidak ikut terdeteksi
+    local terrainParams = RaycastParams.new()
+    terrainParams.FilterType = Enum.RaycastFilterType.Include
+    terrainParams.FilterDescendantsInstances = {Workspace.Terrain}
+    terrainParams.IgnoreWater = false
+
+    local terrainResult = Workspace:Raycast(
+        Vector3.new(castPos.X, origin.Y + 10, castPos.Z),
+        Vector3.new(0, -150, 0),
+        terrainParams
+    )
+    if terrainResult and terrainResult.Material == Enum.Material.Water then
+        waterY = terrainResult.Position.Y
+        print("[F&M Remote Farm] Water terrain detected at Y: " .. tostring(waterY))
     end
-    
+
+    -- Fallback: coba dari samping kiri/kanan jika lurus ke bawah terblokir
+    if not waterY then
+        for _, sideOffset in ipairs({Vector3.new(5,0,0), Vector3.new(-5,0,0), Vector3.new(0,0,5), Vector3.new(0,0,-5)}) do
+            local sidePos = castPos + sideOffset
+            local sideResult = Workspace:Raycast(
+                Vector3.new(sidePos.X, origin.Y + 10, sidePos.Z),
+                Vector3.new(0, -150, 0),
+                terrainParams
+            )
+            if sideResult and sideResult.Material == Enum.Material.Water then
+                waterY = sideResult.Position.Y
+                print("[F&M Remote Farm] Water found via side raycast at Y: " .. tostring(waterY))
+                break
+            end
+        end
+    end
+
+    -- Fallback terakhir: gunakan Y - 8 dari posisi karakter
+    if not waterY then
+        waterY = origin.Y - 8
+        warn("[F&M Remote Farm] Tidak bisa deteksi air, pakai fallback Y: " .. tostring(waterY))
+    end
+
     local target = Vector3.new(castPos.X, waterY, castPos.Z)
 
     -- 1. Throw Floater
