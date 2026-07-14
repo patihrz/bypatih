@@ -1182,39 +1182,53 @@ TabDeveloper:CreateButton({
 })
 
 -- Metatable Hooking for Remote Spy (Dengan deep table serialization)
-local hookSuccess, err = pcall(function()
-    local mt = getrawmetatable(game)
-    local oldNamecall = mt.__namecall
-    setreadonly(mt, false)
-    
-    mt.__namecall = newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        if remoteSpyEnabled and (method == "FireServer" or method == "InvokeServer") then
-            local args = {...}
-            print("[Remote Spy] Fired: " .. self:GetFullName() .. " | Method: " .. method)
-            if #args > 0 then
-                for i, v in ipairs(args) do
-                    if type(v) == "table" then
-                        print(string.format("   [%d] (table): {", i))
-                        dumpTable(v, "      ")
-                        print("   }")
-                    else
-                        print(string.format("   [%d] (%s): %s", i, typeof(v), tostring(v)))
+-- Hanya jalan di executor yang support getrawmetatable (Synapse, KRNL, etc.)
+-- Delta / mobile executor: fallback gracefully
+local hookSuccess, err = false, "Not attempted"
+
+if typeof(getrawmetatable) == "function" and typeof(setreadonly) == "function"
+    and typeof(newcclosure) == "function" and typeof(getnamecallmethod) == "function" then
+
+    hookSuccess, err = pcall(function()
+        local mt = getrawmetatable(game)
+        local oldNamecall = mt.__namecall
+        setreadonly(mt, false)
+        
+        mt.__namecall = newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            if remoteSpyEnabled and (method == "FireServer" or method == "InvokeServer") then
+                local args = {...}
+                print("[Remote Spy] Fired: " .. self:GetFullName() .. " | Method: " .. method)
+                if #args > 0 then
+                    for i, v in ipairs(args) do
+                        if type(v) == "table" then
+                            print(string.format("   [%d] (table): {", i))
+                            dumpTable(v, "      ")
+                            print("   }")
+                        else
+                            print(string.format("   [%d] (%s): %s", i, typeof(v), tostring(v)))
+                        end
                     end
+                else
+                    print("   Arguments: None")
                 end
-            else
-                print("   Arguments: None")
             end
-        end
-        return oldNamecall(self, ...)
+            return oldNamecall(self, ...)
+        end)
+        
+        setreadonly(mt, true)
     end)
-    
-    setreadonly(mt, true)
-end)
+else
+    -- Delta / mobile executor: Remote Spy tidak tersedia
+    hookSuccess = false
+    err = "getrawmetatable/setreadonly/newcclosure not available (Delta/mobile executor)"
+    print("[F&M] Remote Spy tidak tersedia di executor ini (Delta/mobile). Fitur lain tetap normal.")
+end
 
 if not hookSuccess then
     warn("[F&M] Remote Spy Hooking failed: " .. tostring(err))
 end
+
 
 
 ----------------------------------------------------
