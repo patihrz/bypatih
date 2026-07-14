@@ -54,6 +54,7 @@ local activeBossName = nil
 local cachedPlayerTap = nil
 
 -- Auto Sell States
+local teleportToSell = true
 local autoSellMinutes = false
 local sellIntervalMinutes = 5
 local autoSellCount = false
@@ -1910,10 +1911,63 @@ local function getInventoryFish()
 end
 
 -- Utama: lakukan penjualan berdasarkan filter
+-- Helper: cari NPC Fisherman (penjual ikan) untuk bypass jarak jauh
+local cachedFishermanNPC = nil
+local function findFishermanNPC()
+    if cachedFishermanNPC and cachedFishermanNPC.Parent then
+        return cachedFishermanNPC
+    end
+    
+    -- 1. Scan direct children di Workspace (Cepat)
+    for _, obj in ipairs(workspace:GetChildren()) do
+        local name = obj.Name:lower()
+        if name:find("fisherman") or name:find("merchant") or name:find("shop") or name:find("seller") then
+            local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart")
+            if hrp then
+                cachedFishermanNPC = hrp
+                return hrp
+            end
+        end
+    end
+    
+    -- 2. Scan seluruh Workspace descendants (Jika NPC ditaruh di sub-folder)
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") then
+            local name = obj.Name:lower()
+            if name:find("fisherman") or name:find("merchant") or name:find("shop") or name:find("seller") then
+                local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart")
+                if hrp then
+                    cachedFishermanNPC = hrp
+                    return hrp
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- Utama: lakukan penjualan berdasarkan filter (dengan bypass teleportasi)
 local function performSell()
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    
+    local oldCFrame = nil
+    if hrp and teleportToSell then
+        local npcPart = findFishermanNPC()
+        if npcPart then
+            oldCFrame = hrp.CFrame
+            -- Teleport tepat di atas NPC agar server mendeteksi posisi valid
+            hrp.CFrame = npcPart.CFrame + Vector3.new(0, 3, 0)
+            task.wait(0.2) -- Jeda agar server mendaftarkan posisi baru kita
+        else
+            warn("[F&M Auto Sell] NPC Fisherman tidak ditemukan di workspace! Menjual tanpa teleport...")
+        end
+    end
+
     -- Prioritas 1: Gunakan SellSelectedFish (Bisa pilih rarity)
     local sellSelectedRemote = findKnitRemote("FishermanShopService", "SellSelectedFish")
     local sellAllRemote = findKnitRemote("FishermanShopService", "SellAllFish")
+    local success, resultType = false, "None"
     
     if sellSelectedRemote then
         pcall(function() sellLabel:Set("Detected Remote: SellSelectedFish") end)
@@ -1922,80 +1976,87 @@ local function performSell()
         local inventory = getInventoryFish()
         if #inventory == 0 then
             print("[F&M Auto Sell] Inventory kosong atau format inventory tidak terdeteksi.")
-            -- Fallback ke SellAllFish jika tidak ada inventory terdeteksi
             if sellAllRemote then
                 print("[F&M Auto Sell] Fallback ke SellAllFish...")
                 local ok, err = pcall(function() return sellAllRemote:InvokeServer() end)
-                if ok then return true, "SellAllFish (Fallback)" else return false, tostring(err) end
+                success, resultType = ok, ok and "SellAllFish (Fallback)" or tostring(err)
+            else
+                success, resultType = false, "Inventory kosong/tidak terdeteksi"
             end
-            return false, "Inventory kosong/tidak terdeteksi"
-        end
-        
-        -- Filter ikan berdasarkan rarity yang dipilih
-        local payload = {}
-        for _, item in ipairs(inventory) do
-            local rarity = item.Rarity or getFishRarity(item.FishId)
-            local rarityStr = tostring(rarity):lower()
-            
-            local shouldSell = false
-            if rarityStr:find("common") and not rarityStr:find("uncommon") and sellCommon then
-                shouldSell = true
-            elseif rarityStr:find("uncommon") and sellUncommon then
-                shouldSell = true
-            elseif rarityStr:find("rare") and sellRare then
-                shouldSell = true
-            elseif rarityStr:find("epic") and sellEpic then
-                shouldSell = true
-            elseif rarityStr:find("legendary") and sellLegendary then
-                shouldSell = true
-            end
-            
-            if shouldSell then
-                table.insert(payload, {
-                    FishId = item.FishId,
-                    Count = item.Count or 1,
-                    InstanceId = item.InstanceId
-                })
-            end
-        end
-        
-        if #payload == 0 then
-            print("[F&M Auto Sell] Tidak ada ikan yang cocok dengan filter rarity.")
-            return false, "No items match filter"
-        end
-        
-        -- Kirim penjualan ke server
-        local success, result = pcall(function()
-            return sellSelectedRemote:InvokeServer(payload)
-        end)
-        
-        if success then
-            print("[F&M Auto Sell] Sukses menjual " .. #payload .. " ikan terpilih.")
-            return true, "SellSelectedFish (" .. #payload .. " ikan)"
         else
-            warn("[F&M Auto Sell] Gagal memanggil SellSelectedFish: " .. tostring(result))
-            return false, tostring(result)
+            -- Filter ikan berdasarkan rarity yang dipilih
+            local payload = {}
+            for _, item in ipairs(inventory) do
+                local rarity = item.Rarity or getFishRarity(item.FishId)
+                local rarityStr = tostring(rarity):lower()
+                
+                local shouldSell = false
+                if rarityStr:find("common") and not rarityStr:find("uncommon") and sellCommon then
+                    shouldSell = true
+                elseif rarityStr:find("uncommon") and sellUncommon then
+                    shouldSell = true
+                elseif rarityStr:find("rare") and sellRare then
+                    shouldSell = true
+                elseif rarityStr:find("epic") and sellEpic then
+                    shouldSell = true
+                elseif rarityStr:find("legendary") and sellLegendary then
+                    shouldSell = true
+                end
+                
+                if shouldSell then
+                    table.insert(payload, {
+                        FishId = item.FishId,
+                        Count = item.Count or 1,
+                        InstanceId = item.InstanceId
+                    })
+                end
+            end
+            
+            if #payload == 0 then
+                print("[F&M Auto Sell] Tidak ada ikan yang cocok dengan filter rarity.")
+                success, resultType = false, "No items match filter"
+            else
+                -- Kirim penjualan ke server
+                local ok, err = pcall(function()
+                    return sellSelectedRemote:InvokeServer(payload)
+                end)
+                success, resultType = ok, ok and "SellSelectedFish (" .. #payload .. " ikan)" or tostring(err)
+            end
         end
     
     -- Prioritas 2: Fallback ke SellAllFish jika SellSelectedFish tidak ada
     elseif sellAllRemote then
         pcall(function() sellLabel:Set("Detected Remote: SellAllFish") end)
-        local success, result = pcall(function()
+        local ok, err = pcall(function()
             return sellAllRemote:InvokeServer()
         end)
-        if success then
-            print("[F&M Auto Sell] Sukses menjual semua ikan (SellAllFish).")
-            return true, "SellAllFish"
-        else
-            warn("[F&M Auto Sell] Gagal memanggil SellAllFish: " .. tostring(result))
-            return false, tostring(result)
-        end
+        success, resultType = ok, ok and "SellAllFish" or tostring(err)
     else
         pcall(function() sellLabel:Set("Detected Remote: NOT FOUND!") end)
         warn("[F&M Auto Sell] Remote penjualan tidak ditemukan!")
-        return false, "Remote tidak ditemukan"
+        success, resultType = false, "Remote tidak ditemukan"
     end
+    
+    -- Kembalikan posisi awal player secara instan setelah invoke selesai
+    if hrp and oldCFrame and teleportToSell then
+        task.wait(0.05)
+        hrp.CFrame = oldCFrame
+    end
+    
+    return success, resultType
 end
+
+
+TabSell:CreateToggle({
+    Name = "Auto Teleport to NPC to Sell",
+    CurrentValue = true,
+    Flag = "TeleportToSell",
+    Callback = function(value)
+        teleportToSell = value
+        print("[F&M Auto Sell] Teleport to NPC: " .. tostring(value))
+    end
+})
+
 
 TabSell:CreateToggle({
     Name = "Auto Sell by Minutes (Interval)",
