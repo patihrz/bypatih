@@ -532,21 +532,45 @@ local function runBlatantFishingCycle()
     -- ConfirmFloatingCast
     pcall(function() ConfirmFloatingCast:InvokeServer(target) end)
 
-    -- Tunggu FishingCastId berubah (max 6 detik = server assign ikan ke pelampung)
+    -- RequestFishBite — WAJIB! Ini yang trigger server assign ikan ke pelampung
+    -- Tanpa ini, FishCaught tidak akan pernah terpicu
+    local RequestFishBite = findKnitRemote("FishingRewardService", "RequestFishBite")
     local uuid = nil
-    local waited = 0
-    while waited < 6 do
-        if not autoBlatantFishing then
-            if fishCaughtConn then fishCaughtConn:Disconnect() end
-            return
+    if RequestFishBite then
+        local biteOk, biteData = pcall(function()
+            return RequestFishBite:InvokeServer(target + Vector3.new(0, 0.1, 0))
+        end)
+        if biteOk and type(biteData) == "table" then
+            uuid = biteData.SessionId or biteData.sessionId or biteData.castId or biteData.CastId or extractUUID(biteData)
+            print("[F&M Blatant] RequestFishBite response UUID: " .. tostring(uuid))
+            if not uuid then
+                print("[F&M Blatant] RequestFishBite table dump:")
+                dumpTable(biteData)
+            end
+        elseif biteOk and type(biteData) == "string" then
+            uuid = biteData
+            print("[F&M Blatant] RequestFishBite string response: " .. tostring(uuid))
         end
-        local castId = LP:GetAttribute("FishingCastId")
-        if castId and castId ~= "" and castId ~= oldCastId then
-            uuid = castId
-            break
+    else
+        warn("[F&M Blatant] RequestFishBite remote tidak ditemukan!")
+    end
+
+    -- Fallback: baca dari attribute (kalau server udah assign lewat jalur lain)
+    if not uuid then
+        local waited2 = 0
+        while waited2 < 3 do
+            if not autoBlatantFishing then
+                if fishCaughtConn then fishCaughtConn:Disconnect() end
+                return
+            end
+            local castId = LP:GetAttribute("FishingCastId")
+            if castId and castId ~= "" and castId ~= oldCastId then
+                uuid = castId
+                break
+            end
+            task.wait(0.1)
+            waited2 = waited2 + 0.1
         end
-        task.wait(0.1)
-        waited = waited + 0.1
     end
 
     if not uuid then
