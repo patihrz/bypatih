@@ -519,33 +519,58 @@ local function runBlatantFishingCycle()
     pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
     task.wait(0.05)
 
-    -- Spam 12 "tap" inputs sequentially dengan jeda 15ms
+    -- Spam 12 "tap" inputs sequentially dengan jeda 15ms dan tangkap hasil return terakhir
+    local lastResult = nil
     for i = 1, 12 do
         if not autoBlatantFishing then break end
-        pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
+        local ok, res = pcall(function() return FishingPullInput:InvokeServer(uuid, "tap") end)
+        if ok and res then
+            lastResult = res
+        end
         task.wait(0.015)
     end
 
     print("[F&M Blatant] Finished sending taps. Checking response...")
+    if lastResult then
+        print("[F&M Blatant] FishingPullInput return value:")
+        dumpTable(lastResult)
+    end
     
-    -- Tunggu 0.2 detik agar server memproses tangkapan dan menyimpan nama ikan di attribute
     task.wait(0.2)
 
-    -- Ambil nama ikan dari response attribute jika ada
-    local caughtFish = nil
-    -- Scan semua attribute character/player yang mungkin menyimpan nama ikan terakhir
-    for k, v in pairs(LP:GetAttributes()) do
-        if type(v) == "string" and k:lower():find("fish") and v ~= "" then
-            caughtFish = v
-            break
+    -- Ambil nama ikan dari response remote tap jika ada
+    local caughtFish = extractFishName(lastResult)
+
+    -- Jika tidak ketemu di remote return, scan attribute (dengan proteksi rod/floater)
+    if not caughtFish then
+        for k, v in pairs(LP:GetAttributes()) do
+            if type(v) == "string" and v ~= "" then
+                local kl = k:lower()
+                -- Cari kata 'fish' tapi ignore 'fishingfloater', 'fishingrod', dll
+                if kl:find("fish") and not (kl:find("rod") or kl:find("floater") or kl:find("equip") or kl:find("tool")) then
+                    caughtFish = v
+                    break
+                end
+            end
         end
     end
     if not caughtFish and char then
         for k, v in pairs(char:GetAttributes()) do
-            if type(v) == "string" and k:lower():find("fish") and v ~= "" then
-                caughtFish = v
-                break
+            if type(v) == "string" and v ~= "" then
+                local kl = k:lower()
+                if kl:find("fish") and not (kl:find("rod") or kl:find("floater") or kl:find("equip") or kl:find("tool")) then
+                    caughtFish = v
+                    break
+                end
             end
+        end
+    end
+
+    -- Debug print all attributes jika masih belum terdeteksi (membantu trace nama key aslinya)
+    if not caughtFish then
+        print("[F&M Blatant Debug] Scan attribute failed. Printing all LP attributes:")
+        for k, v in pairs(LP:GetAttributes()) do
+            print("   " .. k .. " = " .. tostring(v) .. " (" .. typeof(v) .. ")")
         end
     end
 
@@ -557,7 +582,7 @@ local function runBlatantFishingCycle()
         print("[F&M Blatant] Sending RequestPreview for: " .. tostring(caughtFish))
         pcall(function() RequestPreview:InvokeServer("FishModels", caughtFish, nil) end)
     end
-    task.wait(0.1)
+    task.wait(0.15)
     if ReleasePreview then
         print("[F&M Blatant] Sending ReleasePreview for: " .. tostring(caughtFish))
         pcall(function() ReleasePreview:InvokeServer(caughtFish, nil) end)
