@@ -53,7 +53,22 @@ local bossTapDelay = 0.01
 local activeBossName = nil
 local cachedPlayerTap = nil
 
+-- Auto Sell States
+local autoSellMinutes = false
+local sellIntervalMinutes = 5
+local autoSellCount = false
+local sellCountThreshold = 30
+local caughtCount = 0
+
+local sellCommon = true
+local sellUncommon = true
+local sellRare = true
+local sellEpic = true
+local sellLegendary = false
+local detectedSellRemote = nil
+
 local remoteSpyEnabled = false
+
 
 
 -- Create Window
@@ -71,9 +86,11 @@ local Window = Rayfield:CreateWindow({
 
 -- TABS
 local TabFishing = Window:CreateTab("Auto Fishing", 4483362458)
+local TabSell = Window:CreateTab("Auto Sell", 4483362458)
 local TabRaid = Window:CreateTab("Raid Event", 4483362458)
 local TabDeveloper = Window:CreateTab("Developer / Spy", 4483362458)
 local TabPlayer = Window:CreateTab("Player / Misc", 4483362458)
+
 
 ----------------------------------------------------
 -- HELPER FUNCTIONS
@@ -1624,9 +1641,250 @@ TabPlayer:CreateButton({
     end
 })
 
+----------------------------------------------------
+-- AUTO SELL TAB SECTION
+----------------------------------------------------
+TabSell:CreateSection("Auto Sell Toggles")
+
+local sellLabel = TabSell:CreateLabel("Detected Remote: Scanning...")
+
+-- Helper: dapatkan atau scan remote penjualan
+local function performSell()
+    local remote = detectedSellRemote
+    if not remote then
+        -- Auto-detect remote
+        for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+            if obj:IsA("RemoteFunction") or obj:IsA("RemoteEvent") then
+                local name = obj.Name:lower()
+                if name:find("sell") or name:find("merchant") then
+                    remote = obj
+                    detectedSellRemote = obj
+                    pcall(function() sellLabel:Set("Detected Remote: " .. obj:GetFullName()) end)
+                    break
+                end
+            end
+        end
+    end
+    
+    if not remote then
+        warn("[F&M Auto Sell] Sell/Merchant remote tidak ditemukan!")
+        pcall(function() sellLabel:Set("Detected Remote: NOT FOUND!") end)
+        return false, "Remote tidak ditemukan"
+    end
+    
+    -- Siapkan list rarity yang akan dijual
+    local rarities = {}
+    if sellCommon then table.insert(rarities, "Common") end
+    if sellUncommon then table.insert(rarities, "Uncommon") end
+    if sellRare then table.insert(rarities, "Rare") end
+    if sellEpic then table.insert(rarities, "Epic") end
+    if sellLegendary then table.insert(rarities, "Legendary") end
+    
+    -- Format 1: Kirim array rarities (e.g. {"Common", "Uncommon"})
+    -- Format 2: Kirim dictionary (e.g. {Common = true, Uncommon = true})
+    local dictFormat = {}
+    for _, r in ipairs(rarities) do
+        dictFormat[r] = true
+    end
+    
+    local success, err
+    if remote:IsA("RemoteFunction") then
+        success, err = pcall(function() return remote:InvokeServer(rarities) end)
+        if not success then
+            success, err = pcall(function() return remote:InvokeServer(dictFormat) end)
+        end
+        if not success then
+            success, err = pcall(function() return remote:InvokeServer() end)
+        end
+    else -- RemoteEvent
+        success, err = pcall(function() remote:FireServer(rarities) end)
+        if not success then
+            success, err = pcall(function() remote:FireServer(dictFormat) end)
+        end
+        if not success then
+            success, err = pcall(function() remote:FireServer() end)
+        end
+    end
+    
+    if success then
+        print("[F&M Auto Sell] Sukses memanggil remote: " .. remote:GetFullName())
+        return true, remote.Name
+    else
+        warn("[F&M Auto Sell] Gagal memanggil remote: " .. tostring(err))
+        return false, tostring(err)
+    end
+end
+
+TabSell:CreateToggle({
+    Name = "Auto Sell by Minutes (Interval)",
+    CurrentValue = false,
+    Flag = "AutoSellMin",
+    Callback = function(value)
+        autoSellMinutes = value
+        print("[F&M Auto Sell] Sell by Minutes: " .. tostring(value))
+    end
+})
+
+TabSell:CreateSlider({
+    Name = "Sell Interval (Minutes)",
+    Range = {1, 60},
+    Increment = 1,
+    CurrentValue = 5,
+    Flag = "SellMinVal",
+    Callback = function(value)
+        sellIntervalMinutes = value
+    end
+})
+
+TabSell:CreateToggle({
+    Name = "Auto Sell by Fish Count",
+    CurrentValue = false,
+    Flag = "AutoSellCount",
+    Callback = function(value)
+        autoSellCount = value
+        print("[F&M Auto Sell] Sell by Count: " .. tostring(value))
+    end
+})
+
+TabSell:CreateSlider({
+    Name = "Fish Count Threshold",
+    Range = {5, 100},
+    Increment = 5,
+    CurrentValue = 30,
+    Flag = "SellCountVal",
+    Callback = function(value)
+        sellCountThreshold = value
+    end
+})
+
+TabSell:CreateSection("Select Rarities to Sell")
+
+TabSell:CreateToggle({
+    Name = "Sell Common",
+    CurrentValue = true,
+    Flag = "SellCommon",
+    Callback = function(value) sellCommon = value end
+})
+
+TabSell:CreateToggle({
+    Name = "Sell Uncommon",
+    CurrentValue = true,
+    Flag = "SellUncommon",
+    Callback = function(value) sellUncommon = value end
+})
+
+TabSell:CreateToggle({
+    Name = "Sell Rare",
+    CurrentValue = true,
+    Flag = "SellRare",
+    Callback = function(value) sellRare = value end
+})
+
+TabSell:CreateToggle({
+    Name = "Sell Epic",
+    CurrentValue = true,
+    Flag = "SellEpic",
+    Callback = function(value) sellEpic = value end
+})
+
+TabSell:CreateToggle({
+    Name = "Sell Legendary (WARNING: Keep Disabled)",
+    CurrentValue = false,
+    Flag = "SellLegendary",
+    Callback = function(value) sellLegendary = value end
+})
+
+TabSell:CreateSection("Manual Actions")
+
+TabSell:CreateButton({
+    Name = "Sell All Selected Now",
+    Callback = function()
+        local ok, info = performSell()
+        if ok then
+            Rayfield:Notify({Title = "Auto Sell", Content = "Sukses menjual ikan terpilih lewat " .. info, Duration = 4})
+        else
+            Rayfield:Notify({Title = "Auto Sell Error", Content = "Gagal menjual: " .. info, Duration = 4})
+        end
+    end
+})
+
+TabSell:CreateButton({
+    Name = "Manual Scan Sell Remote",
+    Callback = function()
+        detectedSellRemote = nil
+        performSell()
+        local r = detectedSellRemote
+        if r then
+            Rayfield:Notify({Title = "Sell Remote Found!", Content = "Remote: " .. r.Name .. "\nPath: " .. r:GetFullName(), Duration = 5})
+        else
+            Rayfield:Notify({Title = "Not Found", Content = "Remote tidak ditemukan di ReplicatedStorage.", Duration = 4})
+        end
+    end
+})
+
+-- Auto Sell Timer & Count Background Thread
+task.spawn(function()
+    local lastSellTime = os.clock()
+    while true do
+        task.wait(1)
+        
+        -- 1. Jual berdasarkan interval menit
+        if autoSellMinutes then
+            local elapsed = os.clock() - lastSellTime
+            local threshold = sellIntervalMinutes * 60
+            if elapsed >= threshold then
+                print("[F&M Auto Sell] Menit tercapai (" .. sellIntervalMinutes .. " menit). Menjual...")
+                local ok, info = performSell()
+                if ok then
+                    Rayfield:Notify({Title = "Auto Sell", Content = "Sukses menjual ikan (interval menit) lewat " .. info, Duration = 4})
+                end
+                lastSellTime = os.clock()
+            end
+        else
+            lastSellTime = os.clock()
+        end
+        
+        -- 2. Jual berdasarkan jumlah tangkapan
+        if autoSellCount then
+            if caughtCount >= sellCountThreshold then
+                print("[F&M Auto Sell] Jumlah ikan tercapai (" .. caughtCount .. "/" .. sellCountThreshold .. "). Menjual...")
+                local ok, info = performSell()
+                if ok then
+                    Rayfield:Notify({Title = "Auto Sell", Content = "Sukses menjual " .. caughtCount .. " ikan lewat " .. info, Duration = 4})
+                end
+                caughtCount = 0
+            end
+        end
+    end
+end)
+
+-- Global Fish Caught Event Hook (Fail-safe untuk mendeteksi mancing manual/bypass/assist/blatant)
+task.spawn(function()
+    local FishCaughtRemote = nil
+    local tryCount = 0
+    while not FishCaughtRemote and tryCount < 30 do
+        task.wait(1)
+        FishCaughtRemote = findKnitRemote("FishingRewardService", "FishCaught") or findKnitRemote("FishingRewardService", "FishingSuccess")
+        tryCount = tryCount + 1
+    end
+    if FishCaughtRemote then
+        print("[F&M Auto Sell] Global Hook FishCaught aktif di " .. FishCaughtRemote:GetFullName())
+        FishCaughtRemote.OnClientEvent:Connect(function(...)
+            caughtCount = caughtCount + 1
+            print("[F&M Auto Sell] Tangkapan baru terdeteksi! Total caughtCount: " .. caughtCount)
+        end)
+    else
+        warn("[F&M Auto Sell] Global hook gagal: remote event FishCaught/FishingSuccess tidak ditemukan.")
+    end
+end)
+
+-- Jalankan scan pertama saat load
+task.spawn(performSell)
+
 print("[F&M] Script fully initialized! Load config or customize toggles.")
 Rayfield:Notify({
     Title = "Fish & Monsters!",
     Content = "Script loaded successfully! Remote Bypass is ready.",
     Duration = 5
 })
+
