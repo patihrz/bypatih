@@ -768,8 +768,14 @@ task.spawn(function()
                             if name:find("tap") or name:find("click") or name:find("reel") or name:find("shake") or name:find("fish") or
                                text:find("tap") or text:find("click") or text:find("reel") or text:find("shake") or text:find("fish") then
                                 
-                                firesignal(gui.MouseButton1Click)
-                                firesignal(gui.Activated)
+                                -- Safe cross-executor click simulation
+                                if typeof(firesignal) == "function" then
+                                    pcall(firesignal, gui.MouseButton1Click)
+                                    pcall(firesignal, gui.Activated)
+                                else
+                                    pcall(function() gui.MouseButton1Click:Fire() end)
+                                    pcall(function() gui.Activated:Fire() end)
+                                end
                             end
                         end
                     end
