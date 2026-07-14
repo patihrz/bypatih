@@ -2150,6 +2150,106 @@ end
 
 -- Utama: lakukan penjualan berdasarkan filter (dengan bypass teleportasi)
 -- Utama: lakukan penjualan berdasarkan filter (dengan bypass teleportasi + anchoring)
+-- Helper: buka shop lewat proximity prompt NPC
+local function openShopNPC()
+    local npcPart = findFishermanNPC()
+    if npcPart then
+        local prompt = npcPart.Parent:FindFirstChildWhichIsA("ProximityPrompt", true) or npcPart:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if prompt then
+            print("[F&M Auto Sell] Firing ProximityPrompt to open shop...")
+            if typeof(fireproximityprompt) == "function" then
+                pcall(fireproximityprompt, prompt)
+            else
+                pcall(function()
+                    prompt:InputHoldBegin()
+                    task.wait(0.2)
+                    prompt:InputHoldEnd()
+                end)
+            end
+            return true
+        end
+    end
+    return false
+end
+
+-- Helper: otomatisasi klik tombol "Add All [Rarity] to Cart" dan "Sell All" di UI
+local function clickShopButtonsToSell()
+    local buttonsFound = {}
+    for _, gui in ipairs(LP.PlayerGui:GetDescendants()) do
+        if gui:IsA("TextButton") or gui:IsA("ImageButton") then
+            local text = ""
+            pcall(function() text = gui.Text:lower() end)
+            local name = gui.Name:lower()
+            buttonsFound[gui] = {text = text, name = name, path = gui:GetFullName():lower()}
+        end
+    end
+    
+    local function clickButtonByKeywords(keywords)
+        for btn, info in pairs(buttonsFound) do
+            local match = true
+            for _, kw in ipairs(keywords) do
+                if not (info.text:find(kw) or info.name:find(kw) or info.path:find(kw)) then
+                    match = false
+                    break
+                end
+            end
+            if match and isGuiVisible(btn) then
+                print("[F&M Auto Sell UI Fallback] Klik button: " .. btn:GetFullName())
+                if typeof(firesignal) == "function" then
+                    pcall(firesignal, btn.MouseButton1Click)
+                    pcall(firesignal, btn.Activated)
+                else
+                    pcall(function() btn.MouseButton1Click:Fire() end)
+                    pcall(function() btn.Activated:Fire() end)
+                end
+                task.wait(0.15)
+                return true
+            end
+        end
+        return false
+    end
+    
+    local clickedAny = false
+    
+    -- 1. Klik Add All per Rarity yang diaktifkan
+    if sellCommon then
+        if clickButtonByKeywords({"add", "common"}) or clickButtonByKeywords({"cart", "common"}) or clickButtonByKeywords({"all", "common"}) then
+            clickedAny = true
+        end
+    end
+    if sellUncommon then
+        if clickButtonByKeywords({"add", "uncommon"}) or clickButtonByKeywords({"cart", "uncommon"}) or clickButtonByKeywords({"all", "uncommon"}) then
+            clickedAny = true
+        end
+    end
+    if sellRare then
+        if clickButtonByKeywords({"add", "rare"}) or clickButtonByKeywords({"cart", "rare"}) or clickButtonByKeywords({"all", "rare"}) then
+            clickedAny = true
+        end
+    end
+    if sellEpic then
+        if clickButtonByKeywords({"add", "epic"}) or clickButtonByKeywords({"cart", "epic"}) or clickButtonByKeywords({"all", "epic"}) then
+            clickedAny = true
+        end
+    end
+    if sellLegendary then
+        if clickButtonByKeywords({"add", "legendary"}) or clickButtonByKeywords({"cart", "legendary"}) or clickButtonByKeywords({"all", "legendary"}) then
+            clickedAny = true
+        end
+    end
+    
+    -- 2. Klik tombol Sell
+    task.wait(0.2)
+    local sold = clickButtonByKeywords({"sell"}) or clickButtonByKeywords({"jual"}) or clickButtonByKeywords({"cart", "all"})
+    
+    -- 3. Tutup shop UI
+    task.wait(0.2)
+    clickButtonByKeywords({"close"}) or clickButtonByKeywords({"exit"}) or clickButtonByKeywords({"tutup"})
+    
+    return sold or clickedAny
+end
+
+-- Utama: lakukan penjualan berdasarkan filter (dengan bypass teleportasi + anchoring)
 local function performSell()
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -2192,13 +2292,25 @@ local function performSell()
         -- Ambil data inventory
         local inventory = getInventoryFish()
         if #inventory == 0 then
-            print("[F&M Auto Sell] Inventory kosong atau format inventory tidak terdeteksi.")
-            if sellAllRemote then
-                print("[F&M Auto Sell] Fallback ke SellAllFish...")
-                local ok, err = pcall(function() return sellAllRemote:InvokeServer() end)
-                success, resultType = ok, ok and "SellAllFish (Fallback)" or tostring(err)
+            print("[F&M Auto Sell] Tas terbaca 0, menggunakan Fallback Otomatisasi UI Toko...")
+            Rayfield:Notify({
+                Title = "Inventory Empty (Fallback)",
+                Content = "Tas terbaca 0. Membuka UI Toko secara fisik...",
+                Duration = 4
+            })
+            
+            -- Buka UI toko lewat ProximityPrompt
+            local promptOpened = openShopNPC()
+            if promptOpened then
+                task.wait(0.6) -- Tunggu UI terbuka
+                local clickOk = clickShopButtonsToSell()
+                if clickOk then
+                    success, resultType = true, "UI Automation (Add to Cart + Sell)"
+                else
+                    success, resultType = false, "UI Click Fallback Failed"
+                end
             else
-                success, resultType = false, "Inventory kosong/tidak terdeteksi"
+                success, resultType = false, "Gagal membuka UI Toko (ProximityPrompt tidak ketemu)"
             end
         else
             -- Filter ikan berdasarkan rarity yang dipilih
