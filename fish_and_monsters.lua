@@ -222,6 +222,65 @@ local function findRaidOrb()
     return nil
 end
 
+-- Robust Boss Teleport Logic (Handles model, partial matches, billboards, and circles/orbs)
+local function teleportToBossLogic(targetName)
+    if not targetName then return false, "No boss name provided." end
+    
+    local char = LP.Character
+    local playerHrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not playerHrp then return false, "Player Character/HumanoidRootPart not found." end
+
+    -- 1. Coba cari model persis
+    local bossModel = workspace:FindFirstChild(targetName, true)
+    if bossModel then
+        local hrp = bossModel:FindFirstChild("HumanoidRootPart") or bossModel:FindFirstChild("Head") or bossModel:FindFirstChildWhichIsA("BasePart")
+        if hrp then
+            playerHrp.CFrame = hrp.CFrame + Vector3.new(0, 6, 0)
+            return true, "Teleported to exact Boss model: " .. bossModel.Name
+        end
+    end
+
+    -- 2. Coba cari parsial nama (case-insensitive) di Workspace (misal: "Losi Hermit" -> "Losi_Hermit")
+    local lowerTarget = targetName:lower():gsub("_", " ")
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") or obj:IsA("Model") then
+            local name = obj.Name:lower():gsub("_", " ")
+            if name:find(lowerTarget, 1, true) or lowerTarget:find(name, 1, true) then
+                local targetPart = obj:IsA("BasePart") and obj or (obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart"))
+                if targetPart then
+                    playerHrp.CFrame = targetPart.CFrame + Vector3.new(0, 6, 0)
+                    return true, "Teleported to partial match object: " .. obj.Name
+                end
+            end
+        end
+    end
+
+    -- 3. Coba cari lewat BillboardGui / TextLabel di Workspace (penanda teks besar di atas circle)
+    for _, gui in ipairs(workspace:GetDescendants()) do
+        if gui:IsA("TextLabel") then
+            local txt = gui.Text:lower():gsub("_", " ")
+            if txt ~= "" and (txt:find(lowerTarget, 1, true) or lowerTarget:find(txt, 1, true)) then
+                -- Cari part tempat GUI ini menempel
+                local billboard = gui:FindAncestorOfClass("BillboardGui")
+                local adornee = billboard and (billboard.Adornee or billboard.Parent)
+                if adornee and adornee:IsA("BasePart") then
+                    playerHrp.CFrame = adornee.CFrame + Vector3.new(0, 6, 0)
+                    return true, "Teleported to Billboard marker: " .. gui.Text
+                end
+            end
+        end
+    end
+
+    -- 4. Fallback ke Raid Orb / Circle penanda event terdekat
+    local orb = findRaidOrb()
+    if orb then
+        playerHrp.CFrame = orb.CFrame + Vector3.new(0, 4, 0)
+        return true, "Teleported to Raid Orb/Circle fallback: " .. orb.Name
+    end
+
+    return false, "Could not find boss model, match, marker, or raid orb in Workspace."
+end
+
 -- Dump table contents to console helper
 local function dumpTable(t, indent)
     indent = indent or "  "
@@ -1063,20 +1122,12 @@ TabRaid:CreateButton({
     Callback = function()
         local targetName = activeBossName or findActiveBossName()
         if targetName then
-            local bossModel = workspace:FindFirstChild(targetName, true)
-            if bossModel then
-                local hrp = bossModel:FindFirstChild("HumanoidRootPart") or bossModel:FindFirstChild("Head") or bossModel:FindFirstChildWhichIsA("BasePart")
-                if hrp then
-                    local char = LP.Character
-                    local playerHrp = char and char:FindFirstChild("HumanoidRootPart")
-                    if playerHrp then
-                        playerHrp.CFrame = hrp.CFrame + Vector3.new(0, 6, 0)
-                        Rayfield:Notify({Title = "Boss Teleport", Content = "Teleported to " .. targetName, Duration = 3})
-                        return
-                    end
-                end
-            end
-            Rayfield:Notify({Title = "Boss Teleport", Content = "Boss model '" .. targetName .. "' not found in Workspace yet!", Duration = 3})
+            local success, msg = teleportToBossLogic(targetName)
+            Rayfield:Notify({
+                Title = "Boss Teleport",
+                Content = msg,
+                Duration = 4
+            })
         else
             Rayfield:Notify({Title = "Boss Teleport", Content = "No active boss detected! Try scanning first.", Duration = 3})
         end
@@ -1250,17 +1301,7 @@ task.spawn(function()
         if autoTeleportBoss then
             local targetName = activeBossName or findActiveBossName()
             if targetName then
-                local bossModel = workspace:FindFirstChild(targetName, true)
-                if bossModel then
-                    local hrp = bossModel:FindFirstChild("HumanoidRootPart") or bossModel:FindFirstChild("Head") or bossModel:FindFirstChildWhichIsA("BasePart")
-                    if hrp then
-                        local char = LP.Character
-                        local playerHrp = char and char:FindFirstChild("HumanoidRootPart")
-                        if playerHrp then
-                            playerHrp.CFrame = hrp.CFrame + Vector3.new(0, 6, 0)
-                        end
-                    end
-                end
+                teleportToBossLogic(targetName)
             end
         end
     end
