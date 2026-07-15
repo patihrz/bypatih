@@ -59,6 +59,7 @@ local rodNameInput = "Fishingrod_Losi"
 local floaterNameInput = "Floater_Doll"
 
 local autoJoinRaid = false
+local autoTeleportBoss = false
 local autoTapBoss = false
 local bossTapDelay = 0.01
 local activeBossName = nil
@@ -1057,6 +1058,31 @@ TabRaid:CreateButton({
     end
 })
 
+TabRaid:CreateButton({
+    Name = "Teleport to Boss (Monster)",
+    Callback = function()
+        local targetName = activeBossName or findActiveBossName()
+        if targetName then
+            local bossModel = workspace:FindFirstChild(targetName, true)
+            if bossModel then
+                local hrp = bossModel:FindFirstChild("HumanoidRootPart") or bossModel:FindFirstChild("Head") or bossModel:FindFirstChildWhichIsA("BasePart")
+                if hrp then
+                    local char = LP.Character
+                    local playerHrp = char and char:FindFirstChild("HumanoidRootPart")
+                    if playerHrp then
+                        playerHrp.CFrame = hrp.CFrame + Vector3.new(0, 6, 0)
+                        Rayfield:Notify({Title = "Boss Teleport", Content = "Teleported to " .. targetName, Duration = 3})
+                        return
+                    end
+                end
+            end
+            Rayfield:Notify({Title = "Boss Teleport", Content = "Boss model '" .. targetName .. "' not found in Workspace yet!", Duration = 3})
+        else
+            Rayfield:Notify({Title = "Boss Teleport", Content = "No active boss detected! Try scanning first.", Duration = 3})
+        end
+    end
+})
+
 TabRaid:CreateToggle({
     Name = "Auto Teleport to Raid Orb (Loop)",
     CurrentValue = false,
@@ -1065,6 +1091,16 @@ TabRaid:CreateToggle({
         autoJoinRaid = value
     end
 })
+
+TabRaid:CreateToggle({
+    Name = "Auto Teleport to Boss (Loop)",
+    CurrentValue = false,
+    Flag = "AutoTeleportBoss",
+    Callback = function(value)
+        autoTeleportBoss = value
+    end
+})
+
 
 TabRaid:CreateSection("Boss Tap Spammer")
 
@@ -1201,6 +1237,29 @@ task.spawn(function()
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
                 if hrp then
                     hrp.CFrame = orb.CFrame + Vector3.new(0, 3, 0)
+                end
+            end
+        end
+    end
+end)
+
+-- Auto Teleport to Boss Loop
+task.spawn(function()
+    while true do
+        task.wait(3)
+        if autoTeleportBoss then
+            local targetName = activeBossName or findActiveBossName()
+            if targetName then
+                local bossModel = workspace:FindFirstChild(targetName, true)
+                if bossModel then
+                    local hrp = bossModel:FindFirstChild("HumanoidRootPart") or bossModel:FindFirstChild("Head") or bossModel:FindFirstChildWhichIsA("BasePart")
+                    if hrp then
+                        local char = LP.Character
+                        local playerHrp = char and char:FindFirstChild("HumanoidRootPart")
+                        if playerHrp then
+                            playerHrp.CFrame = hrp.CFrame + Vector3.new(0, 6, 0)
+                        end
+                    end
                 end
             end
         end
