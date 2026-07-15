@@ -63,6 +63,7 @@ local autoTeleportBoss = false
 local autoTapBoss = false
 local bossTapDelay = 0.01
 local activeBossName = nil
+local activeBossNames = {}
 local cachedPlayerTap = nil
 
 -- Auto Sell States
@@ -1026,11 +1027,12 @@ end)
 -- Response structure: result = { [1] = { BossName="Losi_Hermit", BossDisplayName="Losi Hermit", CurrentState="Gathering/Fighting/...", SpawnLocationName="Base", ... } }
 local function detectBossFromEvents()
     local GetActiveEvents = findKnitRemote("BossFishEventService", "GetActiveEvents")
-    if not GetActiveEvents then return nil end
+    if not GetActiveEvents then return {} end
     
     local ok, result = pcall(function() return GetActiveEvents:InvokeServer() end)
-    if not ok or type(result) ~= "table" then return nil end
+    if not ok or type(result) ~= "table" then return {} end
 
+    local bosses = {}
     -- Iterasi semua event aktif (bisa lebih dari 1)
     for _, eventData in pairs(result) do
         if type(eventData) == "table" then
@@ -1039,17 +1041,17 @@ local function detectBossFromEvents()
             
             if bossName and type(bossName) == "string" and bossName ~= "" then
                 print("[F&M Boss] GetActiveEvents -> BossName: " .. bossName .. " | State: " .. tostring(state))
-                return bossName
+                table.insert(bosses, bossName)
             end
         end
     end
 
-    return nil
+    return bosses
 end
 
 
--- Helper: scan workspace for active boss model name (GENERIC / BEBAS NAMA)
-local function findActiveBossName()
+-- Helper: scan workspace for active boss model names (GENERIC / BEBAS NAMA)
+local function findActiveBossNames()
     -- List kata kunci NPC/merchant/map agar tidak salah menargetkan NPC, baseplate, atau tombol GUI game
     local blacklistedKeywords = {
         "fish", "merchant", "nelayan", "shop", "seller", "toko", "quest", "innkeeper", "luther", "savepoint",
@@ -1073,14 +1075,14 @@ local function findActiveBossName()
     end
 
     -- 1. Coba lewat server event remote (PALING AKURAT - langsung dari server!)
-    local bossFromRemote = detectBossFromEvents()
-    if bossFromRemote then
-        print("[F&M Boss Auto] Step 1 (GetActiveEvents) -> " .. bossFromRemote)
-        return bossFromRemote
+    local remoteBosses = detectBossFromEvents()
+    if #remoteBosses > 0 then
+        return remoteBosses
     end
 
-    -- 2. Scan Workspace untuk model dengan Humanoid HP sangat tinggi (> 100k) - PALING RELIABLE
-    -- Boss/monster selalu punya HP jauh lebih tinggi dari NPC biasa
+    local bosses = {}
+
+    -- 2. Scan Workspace untuk model dengan Humanoid HP sangat tinggi (> 1000) - PALING RELIABLE
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") and obj.Name ~= LP.Name then
             local isPlayer = Players:GetPlayerFromCharacter(obj)
@@ -1089,7 +1091,7 @@ local function findActiveBossName()
                     local hum = obj:FindFirstChildOfClass("Humanoid")
                     if hum and hum.MaxHealth > 1000 then
                         print("[F&M Boss Auto] Step 2 (Humanoid HP > 1000) matched: " .. obj.Name .. " (HP: " .. hum.MaxHealth .. ")")
-                        return obj.Name
+                        table.insert(bosses, obj.Name)
                     end
                 end
             end
@@ -1097,24 +1099,45 @@ local function findActiveBossName()
     end
 
     -- 3. Scan Workspace untuk model dengan attribute Health/HP tinggi (>10k)
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") and obj.Name ~= LP.Name then
-            local isPlayer = Players:GetPlayerFromCharacter(obj)
-            if not isPlayer then
-                if not isWordBlacklisted(obj.Name) then
-                    local hpAttr = obj:GetAttribute("Health") or obj:GetAttribute("HP") or obj:GetAttribute("MaxHealth") or obj:GetAttribute("BossHealth")
-                    if hpAttr and type(hpAttr) == "number" and hpAttr > 10000 then
-                        print("[F&M Boss Auto] Step 3 (HP Attribute > 10k) matched: " .. obj.Name)
-                        return obj.Name
+    if #bosses == 0 then
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("Model") and obj.Name ~= LP.Name then
+                local isPlayer = Players:GetPlayerFromCharacter(obj)
+                if not isPlayer then
+                    if not isWordBlacklisted(obj.Name) then
+                        local hpAttr = obj:GetAttribute("Health") or obj:GetAttribute("HP") or obj:GetAttribute("MaxHealth") or obj:GetAttribute("BossHealth")
+                        if hpAttr and type(hpAttr) == "number" and hpAttr > 10000 then
+                            print("[F&M Boss Auto] Step 3 (HP Attribute > 10k) matched: " .. obj.Name)
+                            table.insert(bosses, obj.Name)
+                        end
                     end
                 end
             end
         end
     end
 
-    print("[F&M Boss Auto] No boss detected. Waiting for event...")
-    return nil
+    -- Deduplicate list
+    local hash = {}
+    local uniqueBosses = {}
+    for _, v in ipairs(bosses) do
+        if not hash[v] then
+            uniqueBosses[#uniqueBosses + 1] = v
+            hash[v] = true
+        end
+    end
+
+    if #uniqueBosses == 0 then
+        print("[F&M Boss Auto] No boss detected. Waiting for event...")
+    end
+    return uniqueBosses
 end
+
+-- Wrapper backwards compatibility
+local function findActiveBossName()
+    local list = findActiveBossNames()
+    return list[1]
+end
+
 
 
 TabRaid:CreateSection("Raid Boss Controls")
@@ -1177,11 +1200,13 @@ TabRaid:CreateSection("Boss Tap Spammer")
 TabRaid:CreateButton({
     Name = "Scan Active Boss Name",
     Callback = function()
-        local found = findActiveBossName()
-        if found then
-            activeBossName = found
-            print("[F&M Boss] Boss ditemukan: " .. found)
-            Rayfield:Notify({Title = "Boss Found!", Content = "Boss aktif: " .. found, Duration = 5})
+        local foundList = findActiveBossNames()
+        if #foundList > 0 then
+            activeBossNames = foundList
+            activeBossName = foundList[1]
+            local display = table.concat(foundList, ", ")
+            print("[F&M Boss] Bosses ditemukan: " .. display)
+            Rayfield:Notify({Title = "Boss Found!", Content = "Boss aktif: " .. display, Duration = 5})
         else
             print("[F&M Boss] Tidak ada boss aktif ditemukan di Workspace.")
             Rayfield:Notify({Title = "Boss Not Found", Content = "Tidak ada boss aktif di workspace. Coba input manual atau tunggu event muncul.", Duration = 5})
@@ -1275,13 +1300,18 @@ TabRaid:CreateButton({
 
 TabRaid:CreateInput({
     Name = "Boss Name (Manual Input)",
-    PlaceholderText = "Contoh: Losi_Hermit",
+    PlaceholderText = "Contoh: Losi_Hermit, Windah_SM",
     RemoveTextAfterFocusLost = false,
     Callback = function(Text)
         if Text and Text ~= "" then
-            activeBossName = Text
-            print("[F&M Boss] Boss name di-set manual: " .. Text)
-            Rayfield:Notify({Title = "Boss Name Set", Content = "Boss: " .. Text, Duration = 3})
+            activeBossNames = {}
+            for name in string.gmatch(Text, "([^,%s]+)") do
+                table.insert(activeBossNames, name)
+            end
+            activeBossName = activeBossNames[1]
+            local display = table.concat(activeBossNames, ", ")
+            print("[F&M Boss] Boss names di-set manual: " .. display)
+            Rayfield:Notify({Title = "Boss Names Set", Content = "Bosses: " .. display, Duration = 3})
         end
     end
 })
@@ -1294,12 +1324,14 @@ TabRaid:CreateToggle({
         autoTapBoss = value
         if value then
             -- Auto scan boss name saat toggle dinyalakan
-            local found = findActiveBossName()
-            if found then
-                activeBossName = found
-                print("[F&M Boss] Auto-detected boss: " .. found)
-                Rayfield:Notify({Title = "Boss Detected", Content = "Boss: " .. found, Duration = 3})
-            elseif not activeBossName then
+            local foundList = findActiveBossNames()
+            if #foundList > 0 then
+                activeBossNames = foundList
+                activeBossName = foundList[1]
+                local display = table.concat(foundList, ", ")
+                print("[F&M Boss] Auto-detected bosses: " .. display)
+                Rayfield:Notify({Title = "Bosses Detected", Content = "Bosses: " .. display, Duration = 3})
+            elseif #activeBossNames == 0 then
                 warn("[F&M Boss] Boss name belum diset! Gunakan tombol Scan atau input manual.")
                 Rayfield:Notify({Title = "Warning", Content = "Boss name kosong! Scan dulu atau input manual.", Duration = 5})
             end
@@ -1381,29 +1413,45 @@ task.spawn(function()
             end
 
             -- Verifikasi apakah boss yang lama masih ada di workspace
-            if activeBossName then
-                local bossModel = workspace:FindFirstChild(activeBossName, true)
-                if not bossModel then
-                    -- Reset nama agar men-scan ulang jika boss sudah mati atau berganti
-                    local newBossName = findActiveBossName()
-                    if newBossName ~= activeBossName then
-                        activeBossName = newBossName
-                        if newBossName then
-                            print("[F&M Boss] Boss berganti / terdeteksi baru: " .. newBossName)
-                        else
-                            print("[F&M Boss] Boss lama telah mati/hilang. Mencari boss baru...")
-                        end
+            if #activeBossNames > 0 then
+                local stillActive = {}
+                for _, bName in ipairs(activeBossNames) do
+                    local bossModel = workspace:FindFirstChild(bName, true)
+                    -- Boss dianggap masih aktif jika modelnya ada di workspace
+                    if bossModel then
+                        table.insert(stillActive, bName)
                     end
                 end
+                
+                if #stillActive == 0 then
+                    -- Coba cari event aktif lagi
+                    local newBosses = findActiveBossNames()
+                    if #newBosses > 0 then
+                        activeBossNames = newBosses
+                        activeBossName = newBosses[1]
+                    else
+                        activeBossNames = {}
+                        activeBossName = nil
+                    end
+                else
+                    activeBossNames = stillActive
+                    activeBossName = stillActive[1]
+                end
             else
-                activeBossName = findActiveBossName()
-                if activeBossName then
-                    print("[F&M Boss] Auto-detected boss name: " .. activeBossName)
+                local newBosses = findActiveBossNames()
+                if #newBosses > 0 then
+                    activeBossNames = newBosses
+                    activeBossName = newBosses[1]
                 end
             end
 
-            local targetName = activeBossName
-            if not targetName then
+            -- Ambil targetsToTap
+            local targetsToTap = {}
+            for _, bName in ipairs(activeBossNames) do
+                table.insert(targetsToTap, bName)
+            end
+
+            if #targetsToTap == 0 then
                 -- Fallback: Cari model terdekat dari player di workspace
                 local char = LP.Character
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -1426,7 +1474,7 @@ task.spawn(function()
                         end
                     end
                     if nearestModel then
-                        targetName = nearestModel.Name
+                        table.insert(targetsToTap, nearestModel.Name)
                     end
                 end
             end
@@ -1435,8 +1483,9 @@ task.spawn(function()
             local now = os.clock()
             if now - lastBossDebugTime > 1.0 then
                 lastBossDebugTime = now
-                print(string.format("[F&M Boss Loop] Active: Target=%s | Remote=%s | Delay=%s",
-                    tostring(targetName),
+                local display = #targetsToTap > 0 and table.concat(targetsToTap, ", ") or "NONE"
+                print(string.format("[F&M Boss Loop] Active: Targets=%s | Remote=%s | Delay=%s",
+                    display,
                     tostring(cachedPlayerTap and cachedPlayerTap.Name or "NOT FOUND"),
                     tostring(bossTapDelay)
                 ))
@@ -1475,20 +1524,22 @@ task.spawn(function()
             end)
 
             -- 2. Metode Kedua: Direct Remote Spammer (Sangat Cepat)
-            -- Kirim remote langsung jika target boss berhasil dideteksi otomatis
-            if cachedPlayerTap and targetName then
-                task.spawn(function()
-                    local ok, result = pcall(function()
-                        if cachedPlayerTap:IsA("RemoteFunction") then
-                            return cachedPlayerTap:InvokeServer(targetName)
-                        else
-                            return cachedPlayerTap:FireServer(targetName)
+            -- Kirim remote langsung ke semua boss di targetsToTap secara parallel
+            if cachedPlayerTap and #targetsToTap > 0 then
+                for _, target in ipairs(targetsToTap) do
+                    task.spawn(function()
+                        local ok, result = pcall(function()
+                            if cachedPlayerTap:IsA("RemoteFunction") then
+                                return cachedPlayerTap:InvokeServer(target)
+                            else
+                                return cachedPlayerTap:FireServer(target)
+                            end
+                        end)
+                        if not ok then
+                            warn("[F&M Boss] Tap Error for " .. tostring(target) .. ": " .. tostring(result))
                         end
                     end)
-                    if not ok then
-                        warn("[F&M Boss] Tap Error: " .. tostring(result))
-                    end
-                end)
+                end
             end
 
         else
