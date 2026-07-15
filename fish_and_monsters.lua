@@ -1027,9 +1027,14 @@ local function findActiveBossName()
                     -- CRITICAL: Abaikan jika teks GUI mengandung kata kunci blacklist (seperti tombol "Base", "Items", dll)
                     if not isWordBlacklisted(txt) then
                         -- Coba cocokkan string teks ini langsung dengan model di Workspace
-                        if workspace:FindFirstChild(txt, true) then
-                            bossFromGui = txt
-                            break
+                        -- CRITICAL: Pastikan model yang ditemukan BUKAN karakter player (username bisa muncul di nametag GUI!)
+                        local foundObj = workspace:FindFirstChild(txt, true)
+                        if foundObj and foundObj:IsA("Model") then
+                            local isPlayerChar = Players:GetPlayerFromCharacter(foundObj)
+                            if not isPlayerChar then
+                                bossFromGui = txt
+                                break
+                            end
                         end
                         -- Coba cari model yang mengandung nama ini
                         for _, obj in ipairs(Workspace:GetDescendants()) do
@@ -1051,6 +1056,7 @@ local function findActiveBossName()
         print("[F&M Boss Auto] Step 2 (GUI Text Match) matched: " .. bossFromGui)
         return bossFromGui
     end
+
 
     -- 3. Scan Workspace untuk model dengan attribute Health/HP tinggi (>10k) - BEBAS NAMA
     for _, obj in ipairs(Workspace:GetDescendants()) do
