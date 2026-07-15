@@ -1048,8 +1048,13 @@ local function findActiveBossName()
         local nearestModel = nil
         local nearestDist = 250 -- Jarak maksimal boss raid dari player
         
-        -- Filter kata kunci NPC/merchant agar tidak salah menargetkan NPC Fisherman
-        local blacklistedKeywords = {"fish", "merchant", "nelayan", "shop", "seller", "toko", "quest", "innkeeper", "luther", "savepoint"}
+        -- Filter kata kunci NPC/merchant/map agar tidak salah menargetkan NPC atau baseplate
+        local blacklistedKeywords = {
+            "fish", "merchant", "nelayan", "shop", "seller", "toko", "quest", "innkeeper", "luther", "savepoint",
+            "base", "map", "lobby", "ground", "spawn", "plot", "stand", "showcase", "leaderboard", "leaderboards",
+            "wall", "bucket", "decor", "tree", "rock", "water", "aquarium", "building", "house", "fence", "bridge",
+            "boat", "ship", "sea", "ocean", "island", "plate", "board", "road", "path", "terrain", "obby", "arena"
+        }
 
         for _, obj in ipairs(Workspace:GetDescendants()) do
             if obj:IsA("Model") and obj ~= char and obj.Name ~= LP.Name then
@@ -1066,8 +1071,8 @@ local function findActiveBossName()
                     end
 
                     if not isBlacklisted then
-                        -- Pastikan model memiliki part fisik untuk kalkulasi jarak
-                        local objPart = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart")
+                        -- Wajib memiliki HumanoidRootPart atau Head (menandakan ini Model Karakter/Monster, bukan map)
+                        local objPart = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head")
                         if objPart then
                             local d = (objPart.Position - hrp.Position).Magnitude
                             if d < nearestDist then
@@ -1085,6 +1090,7 @@ local function findActiveBossName()
             return nearestModel
         end
     end
+
 
     -- 5. Fallback Terakhir: Scan model dengan HP sangat tinggi (> 100k) di workspace
     for _, obj in ipairs(Workspace:GetDescendants()) do
