@@ -1258,7 +1258,8 @@ local function findBossTapRemote()
     return nil
 end
 
--- Auto Tap Boss Loop (dengan cache remote + debug verbose)
+-- Auto Tap Boss Loop (dengan debug logging & error reporting)
+local lastBossDebugTime = 0
 task.spawn(function()
     while true do
         task.wait(bossTapDelay)
@@ -1293,45 +1294,59 @@ task.spawn(function()
                 end
             end
 
-            if cachedPlayerTap then
-                local targetName = activeBossName
-                if not targetName then
-                    -- Fallback: Cari model terdekat dari player di workspace
-                    local char = LP.Character
-                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                    if hrp then
-                        local nearestModel = nil
-                        local nearestDist = 150
-                        for _, obj in ipairs(workspace:GetChildren()) do
-                            if obj:IsA("Model") and obj ~= char then
-                                local isPlayer = Players:GetPlayerFromCharacter(obj)
-                                if not isPlayer then
-                                    local objPart = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
-                                    if objPart then
-                                        local d = (objPart.Position - hrp.Position).Magnitude
-                                        if d < nearestDist then
-                                            nearestModel = obj
-                                            nearestDist = d
-                                        end
+            local targetName = activeBossName
+            if not targetName then
+                -- Fallback: Cari model terdekat dari player di workspace
+                local char = LP.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local nearestModel = nil
+                    local nearestDist = 150
+                    for _, obj in ipairs(workspace:GetChildren()) do
+                        if obj:IsA("Model") and obj ~= char then
+                            local isPlayer = Players:GetPlayerFromCharacter(obj)
+                            if not isPlayer then
+                                local objPart = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
+                                if objPart then
+                                    local d = (objPart.Position - hrp.Position).Magnitude
+                                    if d < nearestDist then
+                                        nearestModel = obj
+                                        nearestDist = d
                                     end
                                 end
                             end
                         end
-                        if nearestModel then
-                            targetName = nearestModel.Name
-                        end
+                    end
+                    if nearestModel then
+                        targetName = nearestModel.Name
                     end
                 end
+            end
 
+            -- Debug status setiap 1 detik
+            local now = os.clock()
+            if now - lastBossDebugTime > 1.0 then
+                lastBossDebugTime = now
+                print(string.format("[F&M Boss Loop] Active: Target=%s | Remote=%s | Delay=%s",
+                    tostring(targetName),
+                    tostring(cachedPlayerTap and cachedPlayerTap.Name or "NOT FOUND"),
+                    tostring(bossTapDelay)
+                ))
+            end
+
+            if cachedPlayerTap then
                 -- Kirim satu tap per loop cycle (tanpa blokir, otomatis menyesuaikan RemoteEvent/RemoteFunction)
                 task.spawn(function()
-                    pcall(function()
+                    local ok, result = pcall(function()
                         if cachedPlayerTap:IsA("RemoteFunction") then
-                            cachedPlayerTap:InvokeServer(targetName)
+                            return cachedPlayerTap:InvokeServer(targetName)
                         else
-                            cachedPlayerTap:FireServer(targetName)
+                            return cachedPlayerTap:FireServer(targetName)
                         end
                     end)
+                    if not ok then
+                        warn("[F&M Boss] Tap Error: " .. tostring(result))
+                    end
                 end)
             end
         else
@@ -1339,6 +1354,7 @@ task.spawn(function()
         end
     end
 end)
+
 
 
 ----------------------------------------------------
