@@ -944,38 +944,30 @@ end)
 ----------------------------------------------------
 
 -- Helper: dapatkan nama boss aktif dari server event (Paling Akurat!)
+-- Response structure: result = { [1] = { BossName="Losi_Hermit", BossDisplayName="Losi Hermit", CurrentState="Gathering/Fighting/...", SpawnLocationName="Base", ... } }
 local function detectBossFromEvents()
     local GetActiveEvents = findKnitRemote("BossFishEventService", "GetActiveEvents")
     if not GetActiveEvents then return nil end
     
     local ok, result = pcall(function() return GetActiveEvents:InvokeServer() end)
-    if not ok then return nil end
+    if not ok or type(result) ~= "table" then return nil end
 
-    -- Dump full response to console agar bisa lihat struktur data aslinya
-    if type(result) == "table" then
-        print("[F&M GetActiveEvents] Full response dump:")
-        local function dumpForBoss(t, indent)
-            indent = indent or ""
-            for k, v in pairs(t) do
-                if type(v) == "table" then
-                    print(indent .. tostring(k) .. " = {")
-                    dumpForBoss(v, indent .. "  ")
-                    print(indent .. "}")
-                else
-                    print(indent .. tostring(k) .. " = " .. tostring(v))
-                end
+    -- Iterasi semua event aktif (bisa lebih dari 1)
+    for _, eventData in pairs(result) do
+        if type(eventData) == "table" then
+            local bossName = eventData.BossName       -- Field persis dari server: "Losi_Hermit"
+            local state = eventData.CurrentState      -- "Gathering" / "Fighting" / dll
+            
+            if bossName and type(bossName) == "string" and bossName ~= "" then
+                print("[F&M Boss] GetActiveEvents -> BossName: " .. bossName .. " | State: " .. tostring(state))
+                return bossName
             end
         end
-        dumpForBoss(result)
-    elseif type(result) == "string" then
-        print("[F&M GetActiveEvents] Returned string: " .. result)
-    else
-        print("[F&M GetActiveEvents] Returned: " .. tostring(result))
-        return nil
     end
 
-    return nil -- Biarkan fallback methods yang handle sampai kita tau struktur response-nya
+    return nil
 end
+
 
 -- Helper: scan workspace for active boss model name (GENERIC / BEBAS NAMA)
 local function findActiveBossName()
