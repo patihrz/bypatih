@@ -1,6 +1,6 @@
 --[[
     Fish and Monsters! Script
-    Made by: Antigravity & patihrz
+    Made by: patihrz
     Features:
     - Knit Client Controller Scanner & Invoker
     - Auto Fishing (Remote Bypass / Knit Hook)
@@ -993,8 +993,12 @@ local function findActiveBossName()
         return false
     end
 
-    -- 1. Coba lewat server event remote (Paling akurat) - dump response dulu ke console
-    detectBossFromEvents()
+    -- 1. Coba lewat server event remote (PALING AKURAT - langsung dari server!)
+    local bossFromRemote = detectBossFromEvents()
+    if bossFromRemote then
+        print("[F&M Boss Auto] Step 1 (GetActiveEvents) -> " .. bossFromRemote)
+        return bossFromRemote
+    end
 
     -- 2. Scan Workspace untuk model dengan Humanoid HP sangat tinggi (> 100k) - PALING RELIABLE
     -- Boss/monster selalu punya HP jauh lebih tinggi dari NPC biasa
