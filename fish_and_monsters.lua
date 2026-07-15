@@ -1375,23 +1375,32 @@ task.spawn(function()
             end
 
             -- 1. Metode Pertama: GUI Button Clicker (100% Bebas Deteksi Boss Name)
-            -- Cari tombol TAP! di layar secara dinamis dan trigger klik-nya
+            -- Cari tombol TAP! game asli di layar secara dinamis dan trigger klik-nya
             task.spawn(function()
                 for _, gui in ipairs(LP.PlayerGui:GetDescendants()) do
                     if (gui:IsA("TextButton") or gui:IsA("ImageButton")) and isGuiVisible(gui) then
-                        local text = ""
-                        pcall(function() text = gui.Text:lower() end)
-                        local name = gui.Name:lower()
-                        if text:find("tap") or name:find("tap") or text:find("click") or name:find("click") then
-                            pcall(function()
-                                if typeof(firesignal) == "function" then
-                                    firesignal(gui.MouseButton1Click)
-                                    firesignal(gui.Activated)
-                                else
-                                    gui.MouseButton1Click:Fire()
-                                    gui.Activated:Fire()
-                                end
-                            end)
+                        local fullName = gui:GetFullName():lower()
+                        -- CRITICAL: Abaikan semua button yang merupakan bagian dari Rayfield/Cheat UI kita!
+                        if not fullName:find("rayfield") then
+                            local text = ""
+                            pcall(function() text = gui.Text end)
+                            local name = gui.Name:lower()
+                            
+                            -- Sangat spesifik mencocokkan tombol TAP! game asli di layar
+                            local isExactTapText = (text == "TAP!" or text == "TAP" or text:lower() == "tap!" or text:lower() == "tap")
+                            local isTapButtonName = (name == "tapbutton" or name == "tap_button" or name == "clickbutton")
+                            
+                            if isExactTapText or isTapButtonName then
+                                pcall(function()
+                                    if typeof(firesignal) == "function" then
+                                        firesignal(gui.MouseButton1Click)
+                                        firesignal(gui.Activated)
+                                    else
+                                        gui.MouseButton1Click:Fire()
+                                        gui.Activated:Fire()
+                                    end
+                                end)
+                            end
                         end
                     end
                 end
@@ -1413,6 +1422,7 @@ task.spawn(function()
                     end
                 end)
             end
+
         else
             cachedPlayerTap = nil
         end
