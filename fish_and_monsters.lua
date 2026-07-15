@@ -62,6 +62,7 @@ local autoJoinRaid = false
 local autoTeleportBoss = false
 local autoTapBoss = false
 local bossTapDelay = 0.01
+local bossTapMultiplier = 1
 local activeBossName = nil
 local activeBossNames = {}
 local cachedPlayerTap = nil
@@ -1350,6 +1351,17 @@ TabRaid:CreateSlider({
     end
 })
 
+TabRaid:CreateSlider({
+    Name = "Boss Tap Multiplier (x Damage)",
+    Range = {1, 15},
+    Increment = 1,
+    CurrentValue = 1,
+    Flag = "BossTapMultiplier",
+    Callback = function(value)
+        bossTapMultiplier = value
+    end
+})
+
 -- Helper: Trigger participate ProximityPrompt atau tombol GUI
 local function triggerParticipate()
     -- 1. Scan ProximityPrompts dekat player (jarak < 40 studs)
@@ -1605,21 +1617,24 @@ task.spawn(function()
             end)
 
             -- 2. Metode Kedua: Direct Remote Spammer (Sangat Cepat)
-            -- Kirim remote langsung ke semua boss di targetsToTap secara parallel
+            -- 2. Metode Kedua: Direct Remote Spammer (Sangat Cepat)
+            -- Kirim remote langsung ke semua boss di targetsToTap secara parallel (dikali bossTapMultiplier)
             if cachedPlayerTap and #targetsToTap > 0 then
                 for _, target in ipairs(targetsToTap) do
-                    task.spawn(function()
-                        local ok, result = pcall(function()
-                            if cachedPlayerTap:IsA("RemoteFunction") then
-                                return cachedPlayerTap:InvokeServer(target)
-                            else
-                                return cachedPlayerTap:FireServer(target)
+                    for i = 1, bossTapMultiplier do
+                        task.spawn(function()
+                            local ok, result = pcall(function()
+                                if cachedPlayerTap:IsA("RemoteFunction") then
+                                    return cachedPlayerTap:InvokeServer(target)
+                                else
+                                    return cachedPlayerTap:FireServer(target)
+                                end
+                            end)
+                            if not ok then
+                                warn("[F&M Boss] Tap Error for " .. tostring(target) .. ": " .. tostring(result))
                             end
                         end)
-                        if not ok then
-                            warn("[F&M Boss] Tap Error for " .. tostring(target) .. ": " .. tostring(result))
-                        end
-                    end)
+                    end
                 end
             end
 
