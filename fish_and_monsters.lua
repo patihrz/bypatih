@@ -755,11 +755,11 @@ local function runBlatantFishingCycle()
     pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
     task.wait(0.02) -- Dipercepat dari 0.1
 
-    -- Taps dengan delay 80ms - cukup cepat tanpa lag
-    for i = 1, 8 do
+    -- Taps super cepat (55ms per tap, 12 taps) - max speed tanpa print spam
+    for i = 1, 12 do
         if not autoBlatantFishing or caughtFishName then break end
         pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
-        task.wait(0.08)
+        task.wait(0.055)
     end
 
 
@@ -780,7 +780,7 @@ end
 -- Blatant Fishing Loop Thread (Jeda minimal antar siklus)
 task.spawn(function()
     while true do
-        task.wait(0.3) -- Jeda antar siklus agar tidak overload CPU
+        task.wait(0.05) -- Fast cycle - lag fix sudah dari hapus print spam
         if autoBlatantFishing then
             local ok, err = pcall(runBlatantFishingCycle)
             if not ok then
