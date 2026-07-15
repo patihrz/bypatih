@@ -2065,9 +2065,16 @@ local function findFishermanNPC()
 
             if part then
                 local dist = (part.Position - myPos).Magnitude
-                print("[F&M DEBUG] Candidate: " .. obj:GetFullName() .. " dist=" .. math.floor(dist))
-                if dist < bestDist then
-                    bestDist = dist
+                -- Prioritaskan GameSystemObject atau FishermanShop (tempat server check distance)
+                local isSystem = obj:GetFullName():lower():find("gamesystemobject") or obj:GetFullName():lower():find("fishermanshop")
+                local score = dist
+                if isSystem then
+                    score = dist - 100000 -- Berikan penalti jarak agar selalu dipilih
+                end
+
+                print("[F&M DEBUG] Candidate: " .. obj:GetFullName() .. " dist=" .. math.floor(dist) .. " (isSystem=" .. tostring(isSystem) .. ")")
+                if score < bestDist then
+                    bestDist = score
                     bestPart = part
                     bestPrompt = obj
                 end
@@ -2078,7 +2085,7 @@ local function findFishermanNPC()
     end
 
     if bestPart then
-        print("[F&M Auto Sell] ✓ Shop Part: " .. bestPart:GetFullName() .. " | Prompt: " .. bestPrompt:GetFullName() .. " | Dist: " .. math.floor(bestDist))
+        print("[F&M Auto Sell] ✓ Shop Part: " .. bestPart:GetFullName() .. " | Prompt: " .. bestPrompt:GetFullName() .. " | Score Dist: " .. math.floor(bestDist))
         cachedFishermanNPC = bestPart
         cachedFishermanPrompt = bestPrompt
     else
@@ -2090,8 +2097,6 @@ end
 
 
 
--- Utama: lakukan penjualan berdasarkan filter (dengan bypass teleportasi)
--- Utama: lakukan penjualan berdasarkan filter (dengan bypass teleportasi + anchoring)
 -- Helper: buka shop lewat proximity prompt NPC
 local function openShopNPC()
     local npcPart = findFishermanNPC()
@@ -2128,32 +2133,25 @@ local function clickShopButtonsToSell()
     
     local function clickButtonByKeywords(keywords)
         for btn, info in pairs(buttonsFound) do
-            local match = true
+            local matchAll = true
             for _, kw in ipairs(keywords) do
-                if not (info.text:find(kw) or info.name:find(kw) or info.path:find(kw)) then
-                    match = false
+                if not info.text:find(kw) and not info.name:find(kw) and not info.path:find(kw) then
+                    matchAll = false
                     break
                 end
             end
-            if match and isGuiVisible(btn) then
-                print("[F&M Auto Sell UI Fallback] Klik button: " .. btn:GetFullName())
-                if typeof(firesignal) == "function" then
-                    pcall(firesignal, btn.MouseButton1Click)
-                    pcall(firesignal, btn.Activated)
-                else
-                    pcall(function() btn.MouseButton1Click:Fire() end)
-                    pcall(function() btn.Activated:Fire() end)
-                end
-                task.wait(0.15)
+            if matchAll then
+                pcall(function()
+                    guiCollide(btn)
+                end)
                 return true
             end
         end
         return false
     end
     
+    -- 1. Tambahkan ikan ke keranjang berdasarkan setting toggle
     local clickedAny = false
-    
-    -- 1. Klik Add All per Rarity yang diaktifkan
     if sellCommon then
         if clickButtonByKeywords({"add", "common"}) or clickButtonByKeywords({"cart", "common"}) or clickButtonByKeywords({"all", "common"}) then
             clickedAny = true
@@ -2192,10 +2190,6 @@ local function clickShopButtonsToSell()
 end
 
 -- Utama: lakukan penjualan berdasarkan filter rarity
--- Alur meniru perilaku asli game (confirmed via Cobalt):
---   1. GetFishInventory:InvokeServer()    → ambil semua ikan
---   2. Filter berdasarkan rarity toggle
---   3. SellSelectedFish:InvokeServer({...}) → kirim per-rarity group
 local function performSell()
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -2223,20 +2217,23 @@ local function performSell()
     pcall(function() sellLabel:Set("Detected Remote: SellSelectedFish ✓") end)
 
     -- ============================================================
-    -- ============================================================
     -- STEP 2: Teleport ke BasePart NPC + Fire ProximityPrompt
     -- ============================================================
-    if hrp then
+    if hrp and teleportToSell then
         local npcPart, prompt = findFishermanNPC()
         if npcPart then
             oldCFrame = hrp.CFrame
             print("[F&M Auto Sell] Teleporting ke BasePart: " .. npcPart:GetFullName())
             print("[F&M Auto Sell] Position: " .. tostring(npcPart.Position))
 
-            -- Teleport tepat ke BasePart (npcPart sudah dijamin BasePart)
+            -- UNANCHOR agar Roblox mengirim paket posisi CFrame terbaru ke server
+            hrp.Anchored = false
+            hrp.CFrame = npcPart.CFrame * CFrame.new(0, 1.5, 0)
+            task.wait(0.3) -- Berikan jeda untuk replikasi posisi unanchored ke server
+
+            -- ANCHOR setelah ter-teleport demi stabilitas
             hrp.Anchored = true
-            hrp.CFrame = npcPart.CFrame  -- pakai CFrame langsung, bukan CFrame.new(Position)
-            task.wait(0.8) -- Tunggu server replikasi posisi
+            task.wait(0.1)
 
             -- Fire ProximityPrompt (HoldDuration aware)
             if prompt then
@@ -2246,7 +2243,7 @@ local function performSell()
                         fireproximityprompt(prompt)
                     else
                         prompt:InputHoldBegin()
-                        task.wait(holdTime + 0.1)
+                        task.wait(holdTime + 0.15)
                         prompt:InputHoldEnd()
                     end
                 end)
@@ -2257,8 +2254,6 @@ local function performSell()
             warn("[F&M Auto Sell] NPC BasePart tidak ditemukan — menjual dari posisi saat ini")
         end
     end
-
-
 
 
     -- ============================================================
@@ -2304,13 +2299,18 @@ local function performSell()
             rarity = "Uncommon"
         end
 
-        if rarityEnabled[rarity] then
-            if not rarityGroups[rarity] then rarityGroups[rarity] = {} end
-            table.insert(rarityGroups[rarity], {
-                FishId     = item.FishId,
-                Count      = item.Count or 1,
-                InstanceId = item.InstanceId
-            })
+        -- FILTER KHUSUS: Lewati rarity "Monster" agar tidak ikut terjual
+        if rarity:lower() == "monster" or tostring(item.Rarity or ""):lower():find("monster") then
+            -- Monster dilewati (tidak masuk list jual)
+        else
+            if rarityEnabled[rarity] then
+                if not rarityGroups[rarity] then rarityGroups[rarity] = {} end
+                table.insert(rarityGroups[rarity], {
+                    FishId     = item.FishId,
+                    Count      = item.Count or 1,
+                    InstanceId = item.InstanceId
+                })
+            end
         end
     end
 
