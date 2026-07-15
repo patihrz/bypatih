@@ -987,6 +987,15 @@ end
 
 -- Helper: scan workspace for active boss model name (GENERIC / BEBAS NAMA)
 local function findActiveBossName()
+    -- List kata kunci NPC/merchant/map agar tidak salah menargetkan NPC, baseplate, atau tombol GUI game
+    local blacklistedKeywords = {
+        "fish", "merchant", "nelayan", "shop", "seller", "toko", "quest", "innkeeper", "luther", "savepoint",
+        "base", "map", "lobby", "ground", "spawn", "plot", "stand", "showcase", "leaderboard", "leaderboards",
+        "wall", "bucket", "decor", "tree", "rock", "water", "aquarium", "building", "house", "fence", "bridge",
+        "boat", "ship", "sea", "ocean", "island", "plate", "board", "road", "path", "terrain", "obby", "arena",
+        "items", "settings", "close", "exit", "menu", "gui", "play", "afk", "confirm", "yes", "no", "cancel"
+    }
+
     -- 1. Coba lewat server event remote (Paling akurat)
     local bossFromRemote = detectBossFromEvents()
     if bossFromRemote then
@@ -1002,22 +1011,35 @@ local function findActiveBossName()
                 local txt = gui.Text
                 -- Filter teks: abaikan teks kosong, angka/persentase HP saja, atau teks level
                 if txt ~= "" and #txt > 2 and #txt < 35 and not txt:find("%%") and not txt:find("^%d+$") and not txt:find("HP") then
-                    -- Coba cocokkan string teks ini langsung dengan model di Workspace
-                    if workspace:FindFirstChild(txt, true) then
-                        bossFromGui = txt
-                        break
-                    end
-                    -- Coba cari model yang mengandung nama ini
-                    for _, obj in ipairs(Workspace:GetDescendants()) do
-                        if obj:IsA("Model") and obj.Name ~= LP.Name and obj.Name:lower():find(txt:lower(), 1, true) then
-                            local isPlayer = Players:GetPlayerFromCharacter(obj)
-                            if not isPlayer then
-                                bossFromGui = obj.Name
-                                break
-                            end
+                    
+                    -- CRITICAL: Abaikan jika teks GUI mengandung kata kunci blacklist (seperti tombol "Base", "Items", dll)
+                    local isBlacklistedText = false
+                    local txtLower = txt:lower()
+                    for _, kw in ipairs(blacklistedKeywords) do
+                        if txtLower == kw or txtLower:find(kw) then
+                            isBlacklistedText = true
+                            break
                         end
                     end
-                    if bossFromGui then break end
+
+                    if not isBlacklistedText then
+                        -- Coba cocokkan string teks ini langsung dengan model di Workspace
+                        if workspace:FindFirstChild(txt, true) then
+                            bossFromGui = txt
+                            break
+                        end
+                        -- Coba cari model yang mengandung nama ini
+                        for _, obj in ipairs(Workspace:GetDescendants()) do
+                            if obj:IsA("Model") and obj.Name ~= LP.Name and obj.Name:lower():find(txtLower, 1, true) then
+                                local isPlayer = Players:GetPlayerFromCharacter(obj)
+                                if not isPlayer then
+                                    bossFromGui = obj.Name
+                                    break
+                                end
+                            end
+                        end
+                        if bossFromGui then break end
+                    end
                 end
             end
         end
@@ -1032,10 +1054,18 @@ local function findActiveBossName()
         if obj:IsA("Model") and obj.Name ~= LP.Name then
             local isPlayer = Players:GetPlayerFromCharacter(obj)
             if not isPlayer then
-                local hpAttr = obj:GetAttribute("Health") or obj:GetAttribute("HP") or obj:GetAttribute("MaxHealth") or obj:GetAttribute("BossHealth")
-                if hpAttr and type(hpAttr) == "number" and hpAttr > 10000 then
-                    print("[F&M Boss] Found boss model via HP attribute (>10k): " .. obj.Name)
-                    return obj.Name
+                local nameLower = obj.Name:lower()
+                local isBlacklisted = false
+                for _, kw in ipairs(blacklistedKeywords) do
+                    if nameLower:find(kw) then isBlacklisted = true; break end
+                end
+
+                if not isBlacklisted then
+                    local hpAttr = obj:GetAttribute("Health") or obj:GetAttribute("HP") or obj:GetAttribute("MaxHealth") or obj:GetAttribute("BossHealth")
+                    if hpAttr and type(hpAttr) == "number" and hpAttr > 10000 then
+                        print("[F&M Boss] Found boss model via HP attribute (>10k): " .. obj.Name)
+                        return obj.Name
+                    end
                 end
             end
         end
@@ -1048,14 +1078,6 @@ local function findActiveBossName()
         local nearestModel = nil
         local nearestDist = 250 -- Jarak maksimal boss raid dari player
         
-        -- Filter kata kunci NPC/merchant/map agar tidak salah menargetkan NPC atau baseplate
-        local blacklistedKeywords = {
-            "fish", "merchant", "nelayan", "shop", "seller", "toko", "quest", "innkeeper", "luther", "savepoint",
-            "base", "map", "lobby", "ground", "spawn", "plot", "stand", "showcase", "leaderboard", "leaderboards",
-            "wall", "bucket", "decor", "tree", "rock", "water", "aquarium", "building", "house", "fence", "bridge",
-            "boat", "ship", "sea", "ocean", "island", "plate", "board", "road", "path", "terrain", "obby", "arena"
-        }
-
         for _, obj in ipairs(Workspace:GetDescendants()) do
             if obj:IsA("Model") and obj ~= char and obj.Name ~= LP.Name then
                 local isPlayer = Players:GetPlayerFromCharacter(obj)
@@ -1097,10 +1119,18 @@ local function findActiveBossName()
         if obj:IsA("Model") and obj.Name ~= LP.Name then
             local isPlayer = Players:GetPlayerFromCharacter(obj)
             if not isPlayer then
-                local hum = obj:FindFirstChildOfClass("Humanoid")
-                if hum and hum.MaxHealth > 100000 then
-                    print("[F&M Boss] Found boss model via Humanoid HP (>100k): " .. obj.Name)
-                    return obj.Name
+                local nameLower = obj.Name:lower()
+                local isBlacklisted = false
+                for _, kw in ipairs(blacklistedKeywords) do
+                    if nameLower:find(kw) then isBlacklisted = true; break end
+                end
+
+                if not isBlacklisted then
+                    local hum = obj:FindFirstChildOfClass("Humanoid")
+                    if hum and hum.MaxHealth > 100000 then
+                        print("[F&M Boss] Found boss model via Humanoid HP (>100k): " .. obj.Name)
+                        return obj.Name
+                    end
                 end
             end
         end
@@ -1108,6 +1138,7 @@ local function findActiveBossName()
 
     return nil
 end
+
 
 
 
