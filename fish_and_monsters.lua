@@ -986,6 +986,7 @@ local function detectBossFromEvents()
 end
 
 -- Helper: scan workspace for active boss model name (Pola _SM, Proximity Bebas Nama, & High HP)
+-- Helper: scan workspace for active boss model name (Pola _SM, GUI, Attributes, & Proximity)
 local function findActiveBossName()
     -- 1. Coba lewat server event remote (Paling akurat)
     local bossFromRemote = detectBossFromEvents()
@@ -994,25 +995,64 @@ local function findActiveBossName()
         return bossFromRemote
     end
 
+    -- 2. Scan PlayerGui untuk TextLabel yang menampilkan nama Boss (berisi "_SM")
+    local bossFromGui = nil
+    pcall(function()
+        for _, gui in ipairs(LP.PlayerGui:GetDescendants()) do
+            if gui:IsA("TextLabel") and isGuiVisible(gui) then
+                local txt = gui.Text
+                -- Cari string yang mengandung _SM (misal: "Windah_SM" atau "Windah_SM_Coral")
+                local match = txt:match("([%w_]+_SM[%w_]*)")
+                if match then
+                    -- Pastikan model tersebut benar-benar ada di Workspace
+                    if workspace:FindFirstChild(match, true) then
+                        bossFromGui = match
+                        break
+                    end
+                end
+            end
+        end
+    end)
+    if bossFromGui then
+        print("[F&M Boss] Found boss name from GUI text: " .. bossFromGui)
+        return bossFromGui
+    end
 
-    -- 2. Fallback A: scan workspace descendants untuk pola _SM
+    -- 3. Scan Workspace Descendants untuk model yang mengandung "_SM" (tidak harus di akhir string)
     for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") then
-            if obj.Name:match("_SM$") then
-                print("[F&M Boss] Found boss model ending with _SM in workspace: " .. obj.Name)
-                return obj.Name
+        if obj:IsA("Model") and obj.Name ~= LP.Name then
+            local isPlayer = Players:GetPlayerFromCharacter(obj)
+            if not isPlayer then
+                if obj.Name:find("_SM") then
+                    print("[F&M Boss] Found boss model containing _SM in workspace: " .. obj.Name)
+                    return obj.Name
+                end
             end
         end
     end
 
-    -- 3. Fallback B: Proximity Scan dekat RaidCircle / RaidOrb (BEBAS NAMA)
+    -- 4. Scan Workspace untuk model dengan attribute Health/HP tinggi (>10k)
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj.Name ~= LP.Name then
+            local isPlayer = Players:GetPlayerFromCharacter(obj)
+            if not isPlayer then
+                local hpAttr = obj:GetAttribute("Health") or obj:GetAttribute("HP") or obj:GetAttribute("MaxHealth") or obj:GetAttribute("BossHealth")
+                if hpAttr and type(hpAttr) == "number" and hpAttr > 10000 then
+                    print("[F&M Boss] Found boss model via HP attribute (>10k): " .. obj.Name)
+                    return obj.Name
+                end
+            end
+        end
+    end
+
+    -- 5. Proximity Scan dekat RaidCircle / RaidOrb (BEBAS NAMA)
     -- Deteksi model apa pun di arena raid yang bukan player
     local raidOrb = findRaidOrb()
     if raidOrb then
         local nearestModel = nil
         local nearestDist = 200 -- Radius area raid
         
-        -- Cek top-level children dulu (biasanya model boss ditaruh langsung di Workspace)
+        -- Cek top-level children dulu
         for _, obj in ipairs(Workspace:GetChildren()) do
             if obj:IsA("Model") and obj.Name ~= LP.Name then
                 local isPlayer = Players:GetPlayerFromCharacter(obj)
@@ -1049,19 +1089,19 @@ local function findActiveBossName()
         end
 
         if nearestModel then
-            print("[F&M Boss] Found boss model via Proximity (Name-Independent): " .. nearestModel)
+            print("[F&M Boss] Found boss model via Proximity to Raid Orb: " .. nearestModel)
             return nearestModel
         end
     end
 
-    -- 4. Fallback C: Scan model dengan HP sangat tinggi (> 100k) di workspace
+    -- 6. Fallback: Scan model dengan HP sangat tinggi (> 100k) di workspace
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") and obj.Name ~= LP.Name then
             local isPlayer = Players:GetPlayerFromCharacter(obj)
             if not isPlayer then
                 local hum = obj:FindFirstChildOfClass("Humanoid")
                 if hum and hum.MaxHealth > 100000 then
-                    print("[F&M Boss] Found boss model via High HP (>100k): " .. obj.Name)
+                    print("[F&M Boss] Found boss model via Humanoid HP (>100k): " .. obj.Name)
                     return obj.Name
                 end
             end
@@ -1070,6 +1110,7 @@ local function findActiveBossName()
 
     return nil
 end
+
 
 TabRaid:CreateSection("Raid Boss Controls")
 
