@@ -2325,19 +2325,20 @@ local function performSell()
         local group = rarityGroups[rarity]
         if group and #group > 0 then
             print("[F&M Auto Sell] Menjual " .. #group .. " ikan " .. rarity .. "...")
-            local ok, err = pcall(function()
+            local ok, result = pcall(function()
                 return sellSelectedRemote:InvokeServer(group)
             end)
             if ok then
                 totalSold = totalSold + #group
                 success = true
-                print("[F&M Auto Sell] ✓ Berhasil jual " .. rarity .. " (" .. #group .. " ikan)")
+                print("[F&M Auto Sell] ✓ Berhasil jual " .. rarity .. " (" .. #group .. " ikan) | Server Response: " .. tostring(result))
             else
-                warn("[F&M Auto Sell] ✗ Gagal jual " .. rarity .. ": " .. tostring(err))
+                warn("[F&M Auto Sell] ✗ Gagal jual " .. rarity .. ": " .. tostring(result or err))
             end
-            task.wait(0.3) -- Jeda antar rarity agar server tidak throttle
+            task.wait(1.2) -- Jeda lebih lama agar server tidak mendeteksi spam/throttle
         end
     end
+
 
     if totalSold > 0 then
         resultType = "SellSelectedFish (" .. totalSold .. " ikan terjual)"
