@@ -985,8 +985,7 @@ local function detectBossFromEvents()
     return nil
 end
 
--- Helper: scan workspace for active boss model name (Pola _SM, Proximity Bebas Nama, & High HP)
--- Helper: scan workspace for active boss model name (Pola _SM, GUI, Attributes, & Proximity)
+-- Helper: scan workspace for active boss model name (GENERIC / BEBAS NAMA)
 local function findActiveBossName()
     -- 1. Coba lewat server event remote (Paling akurat)
     local bossFromRemote = detectBossFromEvents()
@@ -995,43 +994,40 @@ local function findActiveBossName()
         return bossFromRemote
     end
 
-    -- 2. Scan PlayerGui untuk TextLabel yang menampilkan nama Boss (berisi "_SM")
+    -- 2. Scan PlayerGui untuk TextLabel yang menampilkan nama Boss secara dinamis
     local bossFromGui = nil
     pcall(function()
         for _, gui in ipairs(LP.PlayerGui:GetDescendants()) do
             if gui:IsA("TextLabel") and isGuiVisible(gui) then
                 local txt = gui.Text
-                -- Cari string yang mengandung _SM (misal: "Windah_SM" atau "Windah_SM_Coral")
-                local match = txt:match("([%w_]+_SM[%w_]*)")
-                if match then
-                    -- Pastikan model tersebut benar-benar ada di Workspace
-                    if workspace:FindFirstChild(match, true) then
-                        bossFromGui = match
+                -- Filter teks: abaikan teks kosong, angka/persentase HP saja, atau teks level
+                if txt ~= "" and #txt > 2 and #txt < 35 and not txt:find("%%") and not txt:find("^%d+$") and not txt:find("HP") then
+                    -- Coba cocokkan string teks ini langsung dengan model di Workspace
+                    if workspace:FindFirstChild(txt, true) then
+                        bossFromGui = txt
                         break
                     end
+                    -- Coba cari model yang mengandung nama ini
+                    for _, obj in ipairs(Workspace:GetDescendants()) do
+                        if obj:IsA("Model") and obj.Name ~= LP.Name and obj.Name:lower():find(txt:lower(), 1, true) then
+                            local isPlayer = Players:GetPlayerFromCharacter(obj)
+                            if not isPlayer then
+                                bossFromGui = obj.Name
+                                break
+                            end
+                        end
+                    end
+                    if bossFromGui then break end
                 end
             end
         end
     end)
     if bossFromGui then
-        print("[F&M Boss] Found boss name from GUI text: " .. bossFromGui)
+        print("[F&M Boss] Found boss name from GUI text match: " .. bossFromGui)
         return bossFromGui
     end
 
-    -- 3. Scan Workspace Descendants untuk model yang mengandung "_SM" (tidak harus di akhir string)
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") and obj.Name ~= LP.Name then
-            local isPlayer = Players:GetPlayerFromCharacter(obj)
-            if not isPlayer then
-                if obj.Name:find("_SM") then
-                    print("[F&M Boss] Found boss model containing _SM in workspace: " .. obj.Name)
-                    return obj.Name
-                end
-            end
-        end
-    end
-
-    -- 4. Scan Workspace untuk model dengan attribute Health/HP tinggi (>10k)
+    -- 3. Scan Workspace untuk model dengan attribute Health/HP tinggi (>10k) - BEBAS NAMA
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") and obj.Name ~= LP.Name then
             local isPlayer = Players:GetPlayerFromCharacter(obj)
@@ -1045,42 +1041,38 @@ local function findActiveBossName()
         end
     end
 
-    -- 5. Proximity Scan dekat RaidCircle / RaidOrb (BEBAS NAMA)
-    -- Deteksi model apa pun di arena raid yang bukan player
-    local raidOrb = findRaidOrb()
-    if raidOrb then
+    -- 4. Fallback Proximity: Cari model non-player terdekat yang bukan NPC toko (BEBAS NAMA)
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then
         local nearestModel = nil
-        local nearestDist = 200 -- Radius area raid
+        local nearestDist = 250 -- Jarak maksimal boss raid dari player
         
-        -- Cek top-level children dulu
-        for _, obj in ipairs(Workspace:GetChildren()) do
-            if obj:IsA("Model") and obj.Name ~= LP.Name then
+        -- Filter kata kunci NPC/merchant agar tidak salah menargetkan NPC Fisherman
+        local blacklistedKeywords = {"fish", "merchant", "nelayan", "shop", "seller", "toko", "quest", "innkeeper", "luther", "savepoint"}
+
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("Model") and obj ~= char and obj.Name ~= LP.Name then
                 local isPlayer = Players:GetPlayerFromCharacter(obj)
                 if not isPlayer then
-                    local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
-                    if hrp then
-                        local dist = (hrp.Position - raidOrb.Position).Magnitude
-                        if dist < nearestDist then
-                            nearestModel = obj.Name
-                            nearestDist = dist
+                    -- Cek blacklist
+                    local isBlacklisted = false
+                    local nameLower = obj.Name:lower()
+                    for _, kw in ipairs(blacklistedKeywords) do
+                        if nameLower:find(kw) then
+                            isBlacklisted = true
+                            break
                         end
                     end
-                end
-            end
-        end
-        
-        -- Jika tidak ketemu di top-level, cari di dalam descendants
-        if not nearestModel then
-            for _, obj in ipairs(Workspace:GetDescendants()) do
-                if obj:IsA("Model") and obj.Name ~= LP.Name then
-                    local isPlayer = Players:GetPlayerFromCharacter(obj)
-                    if not isPlayer then
-                        local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
-                        if hrp then
-                            local dist = (hrp.Position - raidOrb.Position).Magnitude
-                            if dist < nearestDist then
+
+                    if not isBlacklisted then
+                        -- Pastikan model memiliki part fisik untuk kalkulasi jarak
+                        local objPart = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart")
+                        if objPart then
+                            local d = (objPart.Position - hrp.Position).Magnitude
+                            if d < nearestDist then
                                 nearestModel = obj.Name
-                                nearestDist = dist
+                                nearestDist = d
                             end
                         end
                     end
@@ -1089,12 +1081,12 @@ local function findActiveBossName()
         end
 
         if nearestModel then
-            print("[F&M Boss] Found boss model via Proximity to Raid Orb: " .. nearestModel)
+            print("[F&M Boss] Found boss model via generic proximity: " .. nearestModel .. " (dist: " .. math.floor(nearestDist) .. ")")
             return nearestModel
         end
     end
 
-    -- 6. Fallback: Scan model dengan HP sangat tinggi (> 100k) di workspace
+    -- 5. Fallback Terakhir: Scan model dengan HP sangat tinggi (> 100k) di workspace
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") and obj.Name ~= LP.Name then
             local isPlayer = Players:GetPlayerFromCharacter(obj)
@@ -1110,6 +1102,7 @@ local function findActiveBossName()
 
     return nil
 end
+
 
 
 TabRaid:CreateSection("Raid Boss Controls")
