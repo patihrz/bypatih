@@ -1916,185 +1916,102 @@ local function scanTableForInventory(tbl, depth, list)
     end
 end
 
--- Helper: scan inventory client untuk mendapatkan FishId, Count, dan InstanceId
+-- Helper: ambil inventory ikan LANGSUNG dari server via GetFishInventory remote
+-- (Confirmed via Cobalt RemoteSpy: FishermanShopService.RF.GetFishInventory)
 local function getInventoryFish()
     local fishList = {}
-    
-    -- JALUR 1: Scan Knit Client Controllers secara rekursif (Sangat Agresif!)
-    local Knit = getKnitClient()
-    if Knit and type(Knit.Controllers) == "table" then
-        for ctrlName, ctrl in pairs(Knit.Controllers) do
-            pcall(function()
-                -- 1a. Coba panggil method get inventory jika ada
-                local invData = nil
-                if typeof(ctrl.GetInventory) == "function" then
-                    pcall(function() invData = ctrl:GetInventory() end)
-                end
-                if not invData and typeof(ctrl.GetInventoryData) == "function" then
-                    pcall(function() invData = ctrl:GetInventoryData() end)
-                end
-                if invData then
-                    scanTableForInventory(invData, 1, fishList)
-                end
-                
-                -- 1b. Scan ReplicaController secara spesifik
-                if ctrlName == "ReplicaController" then
-                    local reps = ctrl._replicas or ctrl.Replicas or ctrl.replicas
-                    if type(reps) == "table" then
-                        for repId, replica in pairs(reps) do
-                            if type(replica) == "table" and type(replica.Data) == "table" then
-                                scanTableForInventory(replica.Data, 1, fishList)
-                            end
-                        end
-                    end
-                end
-                
-                -- 1c. Scan seluruh properties controller secara rekursif
-                scanTableForInventory(ctrl, 1, fishList)
-            end)
-        end
-    end
-    
-    -- JALUR 2: Scan LocalPlayer folders (Data / Inventory)
-    if #fishList == 0 then
-        local invFolder = LP:FindFirstChild("Inventory", true) or LP:FindFirstChild("Data", true) or LP:FindFirstChild("FishInventory", true) or LP:FindFirstChild("items", true)
-        if invFolder then
-            for _, item in ipairs(invFolder:GetDescendants()) do
-                local fishId = item:GetAttribute("FishId") or item:GetAttribute("Name") or item.Name
-                local instanceId = item:GetAttribute("InstanceId") or item.Name
-                local rarity = item:GetAttribute("Rarity")
-                local count = item:GetAttribute("Count") or 1
-                
-                if fishId and instanceId and instanceId:match("^%x%x%x%x%x%x%x%x$") and fishId ~= "InstanceId" then
-                    local exists = false
-                    for _, existing in ipairs(fishList) do
-                        if existing.InstanceId == instanceId then exists = true; break end
-                    end
-                    if not exists then
-                        table.insert(fishList, {
-                            FishId = fishId,
-                            InstanceId = instanceId,
-                            Count = count,
-                            Rarity = rarity
-                        })
-                    end
-                end
-            end
-        end
+
+    -- ============================================================
+    -- JALUR UTAMA: Panggil GetFishInventory remote langsung ke server
+    -- (Confirmed via Cobalt: FishermanShopService.RF.GetFishInventory)
+    -- ============================================================
+    local getInvRemote = nil
+
+    -- Coba path exact yang sudah dikonfirmasi lewat Cobalt
+    pcall(function()
+        getInvRemote = game:GetService("ReplicatedStorage")
+            .Packages._Index["sleitnick_knit@1.7.0"]
+            .knit.Services.FishermanShopService.RF.GetFishInventory
+    end)
+
+    -- Fallback: pakai findKnitRemote jika path berubah versi
+    if not getInvRemote then
+        getInvRemote = findKnitRemote("FishermanShopService", "GetFishInventory")
     end
 
-    -- JALUR 3: Scan ReplicatedStorage Replica / Profiles jika ada
-    if #fishList == 0 then
-        local replicas = ReplicatedStorage:FindFirstChild("Replicas") or ReplicatedStorage:FindFirstChild("ReplicaFolder")
-        if replicas then
-            for _, child in ipairs(replicas:GetChildren()) do
-                if child.Name:find(LP.Name) or child.Name:find("Inventory") or child.Name:find("Player") then
-                    for _, f in ipairs(child:GetDescendants()) do
-                        local fishId = f:GetAttribute("FishId") or f.Name
-                        local instanceId = f:GetAttribute("InstanceId") or f.Name
-                        local count = f:GetAttribute("Count") or 1
-                        if fishId and instanceId and instanceId:match("^%x%x%x%x%x%x%x%x$") and fishId ~= "InstanceId" then
-                            local exists = false
-                            for _, existing in ipairs(fishList) do
-                                if existing.InstanceId == instanceId then exists = true; break end
-                            end
-                            if not exists then
-                                table.insert(fishList, {
-                                    FishId = fishId,
-                                    InstanceId = instanceId,
-                                    Count = count
-                                })
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
+    if getInvRemote then
+        local ok, result = pcall(function()
+            return getInvRemote:InvokeServer()
+        end)
 
-    -- JALUR 4: Scan PlayerGui descendants (Mencari attribute / ValueObject dari UI tas)
-    if #fishList == 0 then
-        for _, obj in ipairs(LP.PlayerGui:GetDescendants()) do
-            -- A. Cek StringValue yang berisi ID unik (8-char hex)
-            if obj:IsA("StringValue") then
-                local val = obj.Value
-                if type(val) == "string" and val:match("^%x%x%x%x%x%x%x%x$") then
-                    local fishId = obj.Name
-                    if fishId:lower():find("id") or fishId:lower():find("uuid") or fishId:lower():find("instance") then
-                        fishId = obj.Parent and obj.Parent.Name or "Unknown"
-                    end
-                    if obj.Parent then
-                        fishId = obj.Parent:GetAttribute("FishId") or obj.Parent:GetAttribute("Name") or fishId
-                    end
-                    
-                    local exists = false
-                    for _, existing in ipairs(fishList) do
-                        if existing.InstanceId == val then exists = true; break end
-                    end
-                    if not exists and fishId ~= "Unknown" and not fishId:match("^%x%x%x%x%x%x%x%x$") then
-                        table.insert(fishList, {
-                            FishId = fishId,
-                            InstanceId = val,
-                            Count = 1
-                        })
-                    end
-                end
-            end
-            
-            -- B. Cek Name yang merupakan hex 8-char (Template slot tas)
-            local objName = obj.Name
-            if type(objName) == "string" and objName:match("^%x%x%x%x%x%x%x%x$") then
-                local fishId = obj:GetAttribute("FishId") or obj:GetAttribute("Name") or obj.Parent.Name
-                if fishId:match("^%x%x%x%x%x%x%x%x$") or fishId == "Frame" or fishId == "Template" or fishId == "Slot" then
-                    -- Cari teks nama ikan di child TextLabel
-                    for _, child in ipairs(obj:GetChildren()) do
-                        if child:IsA("TextLabel") and child.Text ~= "" and not child.Text:find("%d") then
-                            fishId = child.Text
-                            break
-                        end
-                    end
-                end
-                
-                local exists = false
-                for _, existing in ipairs(fishList) do
-                    if existing.InstanceId == objName then exists = true; break end
-                end
-                if not exists and fishId ~= "Unknown" and not fishId:match("^%x%x%x%x%x%x%x%x$") then
-                    table.insert(fishList, {
-                        FishId = fishId,
-                        InstanceId = objName,
-                        Count = 1
-                    })
-                end
-            end
-            
-            -- C. Cek seluruh attributes objek
-            pcall(function()
-                local attrs = obj:GetAttributes()
-                for attrName, attrVal in pairs(attrs) do
-                    if type(attrVal) == "string" and attrVal:match("^%x%x%x%x%x%x%x%x$") then
-                        local fishId = obj:GetAttribute("FishId") or obj:GetAttribute("Name") or obj.Name
-                        if fishId:lower():find("id") or fishId:lower():find("uuid") or fishId:lower():find("instance") then
-                            fishId = obj.Parent and obj.Parent.Name or "Unknown"
-                        end
-                        
+        if ok and type(result) == "table" then
+            print("[F&M Auto Sell] GetFishInventory berhasil! Raw result keys: " .. tostring(#result))
+
+            -- Format A: Array flat  → { {FishId, InstanceId, Count, Rarity}, ... }
+            for _, entry in ipairs(result) do
+                if type(entry) == "table" then
+                    local fishId    = entry.FishId    or entry.fishId    or entry.Name or entry.name
+                    local instanceId= entry.InstanceId or entry.instanceId or entry.UUID or entry.uuid
+                    local count     = entry.Count     or entry.count     or 1
+                    local rarity    = entry.Rarity    or entry.rarity    or entry.RarityId or entry.rarityId
+
+                    if type(fishId) == "string" and type(instanceId) == "string" then
+                        -- Pastikan tidak duplikat
                         local exists = false
-                        for _, existing in ipairs(fishList) do
-                            if existing.InstanceId == attrVal then exists = true; break end
+                        for _, x in ipairs(fishList) do
+                            if x.InstanceId == instanceId then exists = true; break end
                         end
-                        if not exists and fishId ~= "Unknown" and not fishId:match("^%x%x%x%x%x%x%x%x$") then
+                        if not exists then
                             table.insert(fishList, {
                                 FishId = fishId,
-                                InstanceId = attrVal,
-                                Count = 1
+                                InstanceId = instanceId,
+                                Count = count,
+                                Rarity = rarity
                             })
                         end
                     end
                 end
-            end)
+            end
+
+            -- Format B: Dictionary grouped by rarity → { Common = { {...}, {...} }, Uncommon = {...} }
+            if #fishList == 0 then
+                for rarityKey, group in pairs(result) do
+                    if type(group) == "table" then
+                        for _, entry in ipairs(group) do
+                            if type(entry) == "table" then
+                                local fishId     = entry.FishId    or entry.fishId    or entry.Name or entry.name
+                                local instanceId = entry.InstanceId or entry.instanceId or entry.UUID or entry.uuid
+                                local count      = entry.Count     or entry.count     or 1
+                                local rarity     = entry.Rarity    or entry.rarity    or rarityKey
+
+                                if type(fishId) == "string" and type(instanceId) == "string" then
+                                    local exists = false
+                                    for _, x in ipairs(fishList) do
+                                        if x.InstanceId == instanceId then exists = true; break end
+                                    end
+                                    if not exists then
+                                        table.insert(fishList, {
+                                            FishId = fishId,
+                                            InstanceId = instanceId,
+                                            Count = count,
+                                            Rarity = rarity
+                                        })
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            print("[F&M Auto Sell] Parsed " .. #fishList .. " ikan dari GetFishInventory.")
+        else
+            warn("[F&M Auto Sell] GetFishInventory:InvokeServer() gagal: " .. tostring(result))
         end
+    else
+        warn("[F&M Auto Sell] Remote GetFishInventory tidak ditemukan!")
     end
-    
+
     pcall(function() inventoryLabel:Set("Inventory Items: Found " .. #fishList) end)
     return fishList
 end
@@ -2279,124 +2196,153 @@ local function clickShopButtonsToSell()
     return sold or clickedAny
 end
 
--- Utama: lakukan penjualan berdasarkan filter (dengan bypass teleportasi + anchoring)
+-- Utama: lakukan penjualan berdasarkan filter rarity
+-- Alur meniru perilaku asli game (confirmed via Cobalt):
+--   1. GetFishInventory:InvokeServer()    → ambil semua ikan
+--   2. Filter berdasarkan rarity toggle
+--   3. SellSelectedFish:InvokeServer({...}) → kirim per-rarity group
 local function performSell()
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    
     local oldCFrame = nil
+
+    -- ============================================================
+    -- STEP 1: Dapatkan remote SellSelectedFish via path exact (Cobalt confirmed)
+    -- ============================================================
+    local sellSelectedRemote = nil
+    pcall(function()
+        sellSelectedRemote = game:GetService("ReplicatedStorage")
+            .Packages._Index["sleitnick_knit@1.7.0"]
+            .knit.Services.FishermanShopService.RF.SellSelectedFish
+    end)
+    -- Fallback: cari dengan findKnitRemote jika versi knit berubah
+    if not sellSelectedRemote then
+        sellSelectedRemote = findKnitRemote("FishermanShopService", "SellSelectedFish")
+    end
+
+    if not sellSelectedRemote then
+        pcall(function() sellLabel:Set("Detected Remote: NOT FOUND!") end)
+        warn("[F&M Auto Sell] SellSelectedFish remote tidak ditemukan!")
+        return false, "Remote tidak ditemukan"
+    end
+    pcall(function() sellLabel:Set("Detected Remote: SellSelectedFish ✓") end)
+
+    -- ============================================================
+    -- STEP 2: Teleport ke NPC jika toggle aktif (opsional)
+    -- ============================================================
     if hrp and teleportToSell then
         local npcPart = findFishermanNPC()
         if npcPart then
             oldCFrame = hrp.CFrame
-            
-            -- Kasih notifikasi info NPC yang dideteksi
             Rayfield:Notify({
                 Title = "Teleporting to Merchant",
-                Content = "Mendekati NPC: " .. npcPart.Parent.Name .. " untuk menjual...",
+                Content = "Mendekati NPC: " .. npcPart.Parent.Name,
                 Duration = 2
             })
-            
-            -- Anchor HRP agar posisi stabil di server & tidak terlempar/slide
             hrp.Anchored = true
             hrp.CFrame = npcPart.CFrame
-            task.wait(0.6) -- Jeda aman biar server mendaftarkan posisi baru kita (0.6 detik)
+            task.wait(0.5)
         else
-            warn("[F&M Auto Sell] NPC Fisherman tidak ditemukan di workspace! Menjual tanpa teleport...")
-            Rayfield:Notify({
-                Title = "NPC Not Found!",
-                Content = "NPC Fisherman tidak terdeteksi di workspace. Menjual di tempat...",
-                Duration = 3
+            warn("[F&M Auto Sell] NPC Fisherman tidak ditemukan, menjual tanpa teleport...")
+        end
+    end
+
+    -- ============================================================
+    -- STEP 3: Ambil inventory dari server via GetFishInventory
+    -- ============================================================
+    local inventory = getInventoryFish()
+
+    if #inventory == 0 then
+        warn("[F&M Auto Sell] GetFishInventory kembali 0 ikan. Tas kosong atau remote gagal.")
+        Rayfield:Notify({
+            Title = "Inventory Kosong",
+            Content = "Server lapor tas kosong. Pastikan kamu punya ikan di tas!",
+            Duration = 4
+        })
+        if hrp and teleportToSell then
+            hrp.Anchored = false
+            if oldCFrame then hrp.CFrame = oldCFrame end
+        end
+        return false, "Inventory kosong dari server"
+    end
+
+    -- ============================================================
+    -- STEP 4: Kelompokkan ikan berdasarkan rarity
+    -- (meniru perilaku game: tiap rarity dikirim dalam 1 panggilan)
+    -- ============================================================
+    local rarityGroups = {}
+    local rarityOrder = {"Common", "Uncommon", "Rare", "Epic", "Legendary"}
+    local rarityEnabled = {
+        Common    = sellCommon,
+        Uncommon  = sellUncommon,
+        Rare      = sellRare,
+        Epic      = sellEpic,
+        Legendary = sellLegendary
+    }
+
+    for _, item in ipairs(inventory) do
+        -- Ambil rarity dari data server, atau lookup dari FishConfig
+        local rarity = item.Rarity or item.rarity or getFishRarity(item.FishId) or "Common"
+        -- Normalize: pastikan kapital pertama saja ("common" → "Common")
+        rarity = rarity:sub(1,1):upper() .. rarity:sub(2):lower()
+        -- Khusus "Uncommon" (biar tidak tertangkap sebagai "Common")
+        if rarity == "Common" and tostring(item.Rarity or ""):lower():find("uncommon") then
+            rarity = "Uncommon"
+        end
+
+        if rarityEnabled[rarity] then
+            if not rarityGroups[rarity] then rarityGroups[rarity] = {} end
+            table.insert(rarityGroups[rarity], {
+                FishId     = item.FishId,
+                Count      = item.Count or 1,
+                InstanceId = item.InstanceId
             })
         end
     end
 
-    -- Prioritas 1: Gunakan SellSelectedFish (Bisa pilih rarity)
-    local sellSelectedRemote = findKnitRemote("FishermanShopService", "SellSelectedFish")
-    local sellAllRemote = findKnitRemote("FishermanShopService", "SellAllFish")
-    local success, resultType = false, "None"
-    
-    if sellSelectedRemote then
-        pcall(function() sellLabel:Set("Detected Remote: SellSelectedFish") end)
-        
-        -- Ambil data inventory
-        local inventory = getInventoryFish()
-        if #inventory == 0 then
-            print("[F&M Auto Sell] Tas terbaca 0, menggunakan Fallback Otomatisasi UI Toko...")
-            Rayfield:Notify({
-                Title = "Inventory Empty (Fallback)",
-                Content = "Tas terbaca 0. Membuka UI Toko secara fisik...",
-                Duration = 4
-            })
-            
-            -- Buka UI toko lewat ProximityPrompt
-            local promptOpened = openShopNPC()
-            if promptOpened then
-                task.wait(0.6) -- Tunggu UI terbuka
-                local clickOk = clickShopButtonsToSell()
-                if clickOk then
-                    success, resultType = true, "UI Automation (Add to Cart + Sell)"
-                else
-                    success, resultType = false, "UI Click Fallback Failed"
-                end
+    -- ============================================================
+    -- STEP 5: Kirim SellSelectedFish per rarity group
+    -- ============================================================
+    local totalSold = 0
+    local success = false
+    local resultType = "No items match filter"
+
+    for _, rarity in ipairs(rarityOrder) do
+        local group = rarityGroups[rarity]
+        if group and #group > 0 then
+            print("[F&M Auto Sell] Menjual " .. #group .. " ikan " .. rarity .. "...")
+            local ok, err = pcall(function()
+                return sellSelectedRemote:InvokeServer(group)
+            end)
+            if ok then
+                totalSold = totalSold + #group
+                success = true
+                print("[F&M Auto Sell] ✓ Berhasil jual " .. rarity .. " (" .. #group .. " ikan)")
             else
-                success, resultType = false, "Gagal membuka UI Toko (ProximityPrompt tidak ketemu)"
+                warn("[F&M Auto Sell] ✗ Gagal jual " .. rarity .. ": " .. tostring(err))
             end
-        else
-            -- Filter ikan berdasarkan rarity yang dipilih
-            local payload = {}
-            for _, item in ipairs(inventory) do
-                local rarity = item.Rarity or getFishRarity(item.FishId)
-                local rarityStr = tostring(rarity):lower()
-                
-                local shouldSell = false
-                if rarityStr:find("common") and not rarityStr:find("uncommon") and sellCommon then
-                    shouldSell = true
-                elseif rarityStr:find("uncommon") and sellUncommon then
-                    shouldSell = true
-                elseif rarityStr:find("rare") and sellRare then
-                    shouldSell = true
-                elseif rarityStr:find("epic") and sellEpic then
-                    shouldSell = true
-                elseif rarityStr:find("legendary") and sellLegendary then
-                    shouldSell = true
-                end
-                
-                if shouldSell then
-                    table.insert(payload, {
-                        FishId = item.FishId,
-                        Count = item.Count or 1,
-                        InstanceId = item.InstanceId
-                    })
-                end
-            end
-            
-            if #payload == 0 then
-                print("[F&M Auto Sell] Tidak ada ikan yang cocok dengan filter rarity.")
-                success, resultType = false, "No items match filter"
-            else
-                -- Kirim penjualan ke server
-                local ok, err = pcall(function()
-                    return sellSelectedRemote:InvokeServer(payload)
-                end)
-                success, resultType = ok, ok and "SellSelectedFish (" .. #payload .. " ikan)" or tostring(err)
-            end
+            task.wait(0.3) -- Jeda antar rarity agar server tidak throttle
         end
-    
-    -- Prioritas 2: Fallback ke SellAllFish jika SellSelectedFish tidak ada
-    elseif sellAllRemote then
-        pcall(function() sellLabel:Set("Detected Remote: SellAllFish") end)
-        local ok, err = pcall(function()
-            return sellAllRemote:InvokeServer()
-        end)
-        success, resultType = ok, ok and "SellAllFish" or tostring(err)
-    else
-        pcall(function() sellLabel:Set("Detected Remote: NOT FOUND!") end)
-        warn("[F&M Auto Sell] Remote penjualan tidak ditemukan!")
-        success, resultType = false, "Remote tidak ditemukan"
     end
-    
-    -- Unanchor dan kembalikan posisi awal player secara aman
+
+    if totalSold > 0 then
+        resultType = "SellSelectedFish (" .. totalSold .. " ikan terjual)"
+        Rayfield:Notify({
+            Title = "Auto Sell Berhasil! 🎣",
+            Content = totalSold .. " ikan berhasil dijual!",
+            Duration = 3
+        })
+    else
+        Rayfield:Notify({
+            Title = "Tidak Ada Yang Dijual",
+            Content = "Tidak ada ikan yang cocok dengan rarity yang dipilih.",
+            Duration = 3
+        })
+    end
+
+    -- ============================================================
+    -- STEP 6: Kembalikan posisi player ke semula
+    -- ============================================================
     if hrp and teleportToSell then
         hrp.Anchored = false
         if oldCFrame then
@@ -2404,7 +2350,7 @@ local function performSell()
             hrp.CFrame = oldCFrame
         end
     end
-    
+
     return success, resultType
 end
 
