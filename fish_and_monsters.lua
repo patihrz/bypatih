@@ -634,12 +634,10 @@ local function runBlatantFishingCycle()
     local floaterInWorld = workspace:FindFirstChild(activeFloaterName, true)
     if floaterInWorld and floaterInWorld:IsA("BasePart") then
         target = floaterInWorld.Position
-        print("[F&M Blatant] Target dari floater di workspace: " .. tostring(target))
     end
     -- Prioritas 2: Raycast ke air
     if not target then
         target = getWaterTarget(origin)
-        print("[F&M Blatant] Target dari raycast: " .. tostring(target))
     end
 
     local floatConfig = {LightInfluence=0, FaceCamera=true, Color=Color3.new(0.94,0.31,1), Transparency=0.02, LightEmission=1, Width=0.24}
@@ -653,60 +651,39 @@ local function runBlatantFishingCycle()
     local serverReadyForPull = false
     local connections = {}
 
-    -- FishCaught listener
+    -- FishCaught listener (silent - no spam print)
     if FishCaught and FishCaught:IsA("RemoteEvent") then
         connections[#connections+1] = FishCaught.OnClientEvent:Connect(function(...)
-            local args = {...}
-            print("[F&M Blatant] [FishCaught] fired! " .. #args .. " args")
-            for i, v in ipairs(args) do
-                print("  [" .. i .. "] " .. typeof(v) .. ": " .. tostring(v))
+            for _, v in ipairs({...}) do
                 if type(v) == "string" and v ~= "" and not v:match("^%x+-%x+-%x+-%x+-%x+$") then
                     caughtFishName = caughtFishName or v
                 end
                 if type(v) == "table" then
                     local n = extractFishName(v)
                     if n then caughtFishName = caughtFishName or n end
-                    dumpTable(v, "    ")
                 end
             end
         end)
     end
 
-    -- FishingSuccess listener
+    -- FishingSuccess listener (silent - no spam print)
     if FishingSuccess and FishingSuccess:IsA("RemoteEvent") then
         connections[#connections+1] = FishingSuccess.OnClientEvent:Connect(function(...)
-            local args = {...}
-            print("[F&M Blatant] [FishingSuccess] fired! " .. #args .. " args")
-            for i, v in ipairs(args) do
-                print("  [" .. i .. "] " .. typeof(v) .. ": " .. tostring(v))
+            for _, v in ipairs({...}) do
                 if type(v) == "string" and v ~= "" and not v:match("^%x+-%x+-%x+-%x+-%x+$") then
                     caughtFishName = caughtFishName or v
                 end
                 if type(v) == "table" then
                     local n = extractFishName(v)
                     if n then caughtFishName = caughtFishName or n end
-                    dumpTable(v, "    ")
                 end
             end
         end)
     end
 
-    -- FishingPullState listener - DIAGNOSIS: lihat arg apa yang dikirim server
-    local pullStateCount = 0
+    -- FishingPullState listener (silent - hanya set flag)
     if FishingPullState and FishingPullState:IsA("RemoteEvent") then
-        connections[#connections+1] = FishingPullState.OnClientEvent:Connect(function(...)
-            pullStateCount = pullStateCount + 1
-            if pullStateCount <= 3 then -- Print hanya 3 pertama supaya tidak spam
-                local args = {...}
-                print("[F&M Blatant] [FishingPullState] #" .. pullStateCount .. " fired! " .. #args .. " args")
-                for i, v in ipairs(args) do
-                    if type(v) == "table" then
-                        dumpTable(v, "  ")
-                    else
-                        print("  [" .. i .. "] " .. typeof(v) .. ": " .. tostring(v))
-                    end
-                end
-            end
+        connections[#connections+1] = FishingPullState.OnClientEvent:Connect(function()
             serverReadyForPull = true
         end)
     end
@@ -736,13 +713,8 @@ local function runBlatantFishingCycle()
         end)
         if biteOk and type(biteData) == "table" then
             uuid = biteData.SessionId or biteData.sessionId or biteData.castId or biteData.CastId or extractUUID(biteData)
-            print("[F&M Blatant] RequestFishBite OK, UUID: " .. tostring(uuid))
-            if not uuid then dumpTable(biteData) end
         elseif biteOk and type(biteData) == "string" and biteData ~= "" then
             uuid = biteData
-            print("[F&M Blatant] RequestFishBite OK (string), UUID: " .. tostring(uuid))
-        elseif not biteOk then
-            warn("[F&M Blatant] RequestFishBite error: " .. tostring(biteData))
         end
     end
 
@@ -766,7 +738,7 @@ local function runBlatantFishingCycle()
         return
     end
 
-    print("[F&M Blatant] Bite! UUID: " .. tostring(uuid))
+    -- UUID acquired, proceed silently
 
     -- Tunggu FishingPullState dari server (max 1s) - tanda server siap untuk StartPulling
     local wsrv = 0
@@ -783,48 +755,32 @@ local function runBlatantFishingCycle()
     pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
     task.wait(0.02) -- Dipercepat dari 0.1
 
-    -- Taps dengan delay sangat cepat (60ms) untuk kecepatan maksimal tapi tetap aman dari rate limit
-    for i = 1, 15 do
-        if not autoBlatantFishing then break end
-        if caughtFishName then 
-            print("[F&M Blatant] Ikan terdeteksi tertangkap lebih awal di tap #" .. i .. ", menghentikan tap loop.")
-            break 
-        end
-        local ok, res = pcall(function()
-            return FishingPullInput:InvokeServer(uuid, "tap")
-        end)
-        task.wait(0.06) -- Dipercepat dari 0.08
+    -- Taps dengan delay 80ms - cukup cepat tanpa lag
+    for i = 1, 8 do
+        if not autoBlatantFishing or caughtFishName then break end
+        pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
+        task.wait(0.08)
     end
 
 
-    print("[F&M Blatant] Taps sent. Menunggu FishCaught / FishingSuccess (max 1.5s)...")
-
-    -- Tunggu max 1.5 detik jika ikan belum terdeteksi tertangkap (dipercepat dari 3s)
+    -- Tunggu max 1.5 detik jika ikan belum terdeteksi tertangkap
     local wt = 0
     while wt < 1.5 and not caughtFishName do
-        task.wait(0.02); wt = wt + 0.02
+        task.wait(0.05); wt = wt + 0.05
     end
 
     disconnectAll()
 
-    if not caughtFishName then
-        print("[F&M Blatant] Tidak ada event fish catch. Fallback NurseShark.")
-        caughtFishName = "NurseShark"
-    else
-        print("[F&M Blatant] Ikan tertangkap: " .. caughtFishName)
-    end
+    if not caughtFishName then caughtFishName = "NurseShark" end
 
-    -- Urutan claim: Lewati RequestPreview & ReleasePreview sepenuhnya agar langsung masuk inventory (SPAM MODE!)
     pcall(function() StopFishing:InvokeServer() end)
     task.wait(0.02)
-    
-    print("[F&M Blatant] Cycle completed!")
 end
 
 -- Blatant Fishing Loop Thread (Jeda minimal antar siklus)
 task.spawn(function()
     while true do
-        task.wait(0.05) -- Dipercepat dari 0.5s agar langsung lempar ulang
+        task.wait(0.3) -- Jeda antar siklus agar tidak overload CPU
         if autoBlatantFishing then
             local ok, err = pcall(runBlatantFishingCycle)
             if not ok then
