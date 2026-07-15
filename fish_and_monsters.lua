@@ -2022,84 +2022,93 @@ local function getInventoryFish()
 end
 
 
--- Utama: lakukan penjualan berdasarkan filter
--- Helper: cari NPC Fisherman (penjual ikan) untuk bypass jarak jauh
+-- Helper: cari NPC Fisherman — confirmed via debug:
+--   Workspace.NPC.Fish.FishermanSellPrompt         (NPC visual)
+--   Workspace.GameSystemObject.FishermanShop.FishermanSellPrompt (shop trigger)
 local cachedFishermanNPC = nil
+local cachedFishermanPrompt = nil
+
 local function findFishermanNPC()
     if cachedFishermanNPC and cachedFishermanNPC.Parent then
-        return cachedFishermanNPC
+        return cachedFishermanNPC, cachedFishermanPrompt
     end
-    
-    -- Kata kunci pencarian (Inggris & Indonesia)
-    local keywords = {"fisherman", "merchant", "shop", "seller", "nelayan", "penjual", "toko", "ikan", "jual"}
-    
-    -- 1. Scan ProximityPrompts di Workspace (Sangat akurat untuk NPC interaktif)
-    for _, prompt in ipairs(workspace:GetDescendants()) do
-        if prompt:IsA("ProximityPrompt") then
-            local parent = prompt.Parent
-            if parent then
-                local name = parent.Name:lower()
-                local promptText = (prompt.ObjectText .. " " .. prompt.ActionText):lower()
-                
-                local isMatch = false
-                for _, kw in ipairs(keywords) do
-                    if name:find(kw) or promptText:find(kw) then
-                        isMatch = true
-                        break
-                    end
-                end
-                
-                if isMatch then
-                    local hrp = parent:FindFirstChild("HumanoidRootPart") or parent:FindFirstChild("Head") or (parent:IsA("BasePart") and parent) or parent:FindFirstChildWhichIsA("BasePart")
-                    if hrp then
-                        print("[F&M Auto Sell] Fisherman NPC found via ProximityPrompt: " .. parent:GetFullName())
-                        cachedFishermanNPC = hrp
-                        return hrp
-                    end
-                end
-            end
+
+    local function tryGetPart(obj)
+        if not obj then return nil end
+        return obj:FindFirstChild("HumanoidRootPart")
+            or obj:FindFirstChild("Head")
+            or obj:FindFirstChildWhichIsA("BasePart")
+            or (obj:IsA("BasePart") and obj)
+    end
+
+    local myPos = Vector3.new(0,0,0)
+    pcall(function()
+        myPos = LP.Character.HumanoidRootPart.Position
+    end)
+
+    local bestDist = math.huge
+    local bestPart, bestPrompt = nil, nil
+
+    local function tryCandidate(obj, promptObj)
+        if not obj or not promptObj then return end
+        local part = tryGetPart(obj) or obj
+        local pos = Vector3.new(0,0,0)
+        pcall(function() pos = part.Position end)
+        local dist = (pos - myPos).Magnitude
+        if dist < bestDist then
+            bestDist = dist
+            bestPart = part
+            bestPrompt = promptObj
         end
     end
-    
-    -- 2. Scan direct children di Workspace (Cepat)
-    for _, obj in ipairs(workspace:GetChildren()) do
-        local name = obj.Name:lower()
-        local isMatch = false
-        for _, kw in ipairs(keywords) do
-            if name:find(kw) then isMatch = true; break end
-        end
-        
-        if isMatch then
-            local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart")
-            if hrp then
-                print("[F&M Auto Sell] Fisherman NPC found via Workspace Direct Children: " .. obj:GetFullName())
-                cachedFishermanNPC = hrp
-                return hrp
+
+    -- PATH 1: Workspace.GameSystemObject.FishermanShop (server distance check kemungkinan pakai ini)
+    pcall(function()
+        local shop = workspace.GameSystemObject.FishermanShop
+        local prompt = shop:FindFirstChild("FishermanSellPrompt", true) or shop:FindFirstChildWhichIsA("ProximityPrompt", true)
+        tryCandidate(shop, prompt)
+    end)
+
+    -- PATH 2: Workspace.NPC.Fish (NPC visual di world)
+    pcall(function()
+        local npcFolder = workspace.NPC.Fish
+        -- Fish bisa berupa Model atau Folder yang berisi NPC
+        if npcFolder:IsA("Model") then
+            local prompt = npcFolder:FindFirstChild("FishermanSellPrompt", true) or npcFolder:FindFirstChildWhichIsA("ProximityPrompt", true)
+            tryCandidate(npcFolder, prompt)
+        else
+            -- Jika Fish adalah folder, iterate children
+            for _, child in ipairs(npcFolder:GetChildren()) do
+                local prompt = child:FindFirstChild("FishermanSellPrompt", true) or child:FindFirstChildWhichIsA("ProximityPrompt", true)
+                tryCandidate(child, prompt)
             end
         end
-    end
-    
-    -- 3. Scan seluruh Workspace descendants (Jika NPC ditaruh di sub-folder)
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Model") then
-            local name = obj.Name:lower()
-            local isMatch = false
-            for _, kw in ipairs(keywords) do
-                if name:find(kw) then isMatch = true; break end
-            end
-            
-            if isMatch then
-                local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart")
-                if hrp then
-                    print("[F&M Auto Sell] Fisherman NPC found via Workspace Descendants: " .. obj:GetFullName())
-                    cachedFishermanNPC = hrp
-                    return hrp
+    end)
+
+    -- PATH 3: Fallback scan seluruh workspace untuk FishermanSellPrompt by name
+    if not bestPart then
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("ProximityPrompt") then
+                local nameMatch = obj.Name == "FishermanSellPrompt"
+                local textMatch = obj.ActionText:lower():find("sell fish") or obj.ObjectText:lower():find("fisherman")
+                if nameMatch or textMatch then
+                    tryCandidate(obj.Parent, obj)
                 end
             end
         end
     end
-    return nil
+
+    if bestPart then
+        print("[F&M Auto Sell] NPC/Shop ditemukan: " .. tostring(bestPrompt and bestPrompt:GetFullName()) .. " (dist: " .. math.floor(bestDist) .. " studs)")
+        cachedFishermanNPC = bestPart
+        cachedFishermanPrompt = bestPrompt
+    else
+        warn("[F&M Auto Sell] Fisherman NPC/Shop tidak ditemukan!")
+    end
+
+    return cachedFishermanNPC, cachedFishermanPrompt
 end
+
 
 -- Utama: lakukan penjualan berdasarkan filter (dengan bypass teleportasi)
 -- Utama: lakukan penjualan berdasarkan filter (dengan bypass teleportasi + anchoring)
@@ -2234,50 +2243,38 @@ local function performSell()
     pcall(function() sellLabel:Set("Detected Remote: SellSelectedFish ✓") end)
 
     -- ============================================================
-    -- STEP 2: Teleport ke NPC + Buka Sesi Toko via ProximityPrompt
-    -- Server melakukan distance check DAN cek apakah shop sudah dibuka
+    -- STEP 2: Teleport ke NPC + Fire ProximityPrompt (buka sesi toko di server)
     -- ============================================================
-    if hrp and teleportToSell then
-        local npcPart = findFishermanNPC()
+    if hrp then
+        local npcPart, prompt = findFishermanNPC()
         if npcPart then
             oldCFrame = hrp.CFrame
-            print("[F&M Auto Sell] NPC ditemukan: " .. npcPart.Parent:GetFullName())
+            print("[F&M Auto Sell] Teleporting ke: " .. tostring(prompt and prompt:GetFullName()))
 
-            -- Teleport tepat ke NPC
+            -- Teleport ke posisi NPC/Shop
             hrp.Anchored = true
-            hrp.CFrame = npcPart.CFrame
-            task.wait(0.6) -- Tunggu replication ke server
+            hrp.CFrame = CFrame.new(npcPart.Position)
+            task.wait(0.7) -- Tunggu server replikasi posisi baru
 
             -- Fire ProximityPrompt untuk membuka sesi toko di server
-            -- (Server mungkin butuh ini sebelum menerima SellSelectedFish)
-            local prompt = npcPart.Parent:FindFirstChildWhichIsA("ProximityPrompt", true)
-                or npcPart:FindFirstChildWhichIsA("ProximityPrompt", true)
             if prompt then
-                print("[F&M Auto Sell] Firing ProximityPrompt: " .. prompt:GetFullName())
                 pcall(function()
                     if typeof(fireproximityprompt) == "function" then
                         fireproximityprompt(prompt)
                     else
                         prompt:InputHoldBegin()
-                        task.wait(0.2)
+                        task.wait(0.15)
                         prompt:InputHoldEnd()
                     end
                 end)
-                task.wait(0.5) -- Tunggu server mencatat sesi toko terbuka
-            else
-                warn("[F&M Auto Sell] ProximityPrompt tidak ditemukan di NPC!")
+                task.wait(0.5) -- Tunggu server register sesi toko
+                print("[F&M Auto Sell] ProximityPrompt fired!")
             end
         else
-            warn("[F&M Auto Sell] NPC Fisherman tidak ditemukan!")
-            -- Debug: print semua ProximityPrompt di workspace
-            print("[F&M Auto Sell] Daftar ProximityPrompt di workspace:")
-            for _, obj in ipairs(workspace:GetDescendants()) do
-                if obj:IsA("ProximityPrompt") then
-                    print("  -> " .. obj:GetFullName() .. " | " .. obj.ObjectText .. " | " .. obj.ActionText)
-                end
-            end
+            warn("[F&M Auto Sell] Tidak bisa teleport — NPC tidak ditemukan")
         end
     end
+
 
     -- ============================================================
     -- STEP 3: Ambil inventory dari server via GetFishInventory
