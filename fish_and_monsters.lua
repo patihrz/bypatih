@@ -1074,7 +1074,7 @@ TabRaid:CreateButton({
             Rayfield:Notify({Title = "Boss Found!", Content = "Boss aktif: " .. found, Duration = 5})
         else
             print("[F&M Boss] Tidak ada boss aktif ditemukan di Workspace.")
-            Rayfield:Notify({Title = "Boss Not Found", Content = "Tidak ada boss _SM di workspace. Coba input manual.", Duration = 5})
+            Rayfield:Notify({Title = "Boss Not Found", Content = "Tidak ada boss aktif di workspace. Coba input manual atau tunggu event muncul.", Duration = 5})
         end
     end
 })
@@ -1092,12 +1092,12 @@ TabRaid:CreateButton({
         if pt then print("  Full path: " .. pt:GetFullName()) end
 
         -- Scan semua model di workspace (10 level)
-        print("--- Scanning Workspace Models (pola _SM / Boss / Monster) ---")
+        print("--- Scanning Workspace Models (Boss / Monster patterns) ---")
         local count = 0
         for _, obj in ipairs(Workspace:GetDescendants()) do
             if obj:IsA("Model") then
                 local n = obj.Name
-                if n:find("_SM") or n:lower():find("boss") or n:lower():find("monster") or n:lower():find("fish") then
+                if n:lower():find("boss") or n:lower():find("monster") or n:lower():find("fish") or n:lower():find("raid") or n:lower():find("hermit") or n:lower():find("crab") then
                     print("  Found: " .. n .. " (" .. obj:GetFullName() .. ")")
                     count = count + 1
                     if count >= 20 then print("  [... truncated]") break end
@@ -1143,7 +1143,7 @@ TabRaid:CreateButton({
 
 TabRaid:CreateInput({
     Name = "Boss Name (Manual Input)",
-    PlaceholderText = "Contoh: Windah_SM",
+    PlaceholderText = "Contoh: Losi_Hermit",
     RemoveTextAfterFocusLost = false,
     Callback = function(Text)
         if Text and Text ~= "" then
@@ -2567,5 +2567,3 @@ Rayfield:Notify({
     Content = "Script loaded successfully! Remote Bypass is ready.",
     Duration = 5
 })
-
-
