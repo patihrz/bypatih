@@ -1374,8 +1374,32 @@ task.spawn(function()
                 ))
             end
 
-            if cachedPlayerTap then
-                -- Kirim satu tap per loop cycle (tanpa blokir, otomatis menyesuaikan RemoteEvent/RemoteFunction)
+            -- 1. Metode Pertama: GUI Button Clicker (100% Bebas Deteksi Boss Name)
+            -- Cari tombol TAP! di layar secara dinamis dan trigger klik-nya
+            task.spawn(function()
+                for _, gui in ipairs(LP.PlayerGui:GetDescendants()) do
+                    if (gui:IsA("TextButton") or gui:IsA("ImageButton")) and isGuiVisible(gui) then
+                        local text = ""
+                        pcall(function() text = gui.Text:lower() end)
+                        local name = gui.Name:lower()
+                        if text:find("tap") or name:find("tap") or text:find("click") or name:find("click") then
+                            pcall(function()
+                                if typeof(firesignal) == "function" then
+                                    firesignal(gui.MouseButton1Click)
+                                    firesignal(gui.Activated)
+                                else
+                                    gui.MouseButton1Click:Fire()
+                                    gui.Activated:Fire()
+                                end
+                            end)
+                        end
+                    end
+                end
+            end)
+
+            -- 2. Metode Kedua: Direct Remote Spammer (Sangat Cepat)
+            -- Kirim remote langsung jika target boss berhasil dideteksi otomatis
+            if cachedPlayerTap and targetName then
                 task.spawn(function()
                     local ok, result = pcall(function()
                         if cachedPlayerTap:IsA("RemoteFunction") then
