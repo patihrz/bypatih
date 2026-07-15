@@ -949,39 +949,32 @@ local function detectBossFromEvents()
     if not GetActiveEvents then return nil end
     
     local ok, result = pcall(function() return GetActiveEvents:InvokeServer() end)
-    if ok and type(result) == "table" then
-        print("[F&M Boss Spy] GetActiveEvents returned table:")
-        -- Cari string mana pun di keys atau values yang merepresentasikan model nyata di workspace
-        for k, v in pairs(result) do
-            -- Validasi key string
-            if type(k) == "string" and k ~= "" and not (k == "status" or k == "time" or k == "active") then
-                -- Cek apakah nama ini adalah model yang ada di workspace
-                if workspace:FindFirstChild(k, true) then
-                    return k
-                end
-            end
-            if type(v) == "string" and v ~= "" and not (v == "status" or v == "time" or v == "active") then
-                if workspace:FindFirstChild(v, true) then
-                    return v
-                end
-            end
-            if type(v) == "table" then
-                for k2, v2 in pairs(v) do
-                    if type(k2) == "string" and k2 ~= "" and not (k2 == "status" or k2 == "time" or k2 == "active") then
-                        if workspace:FindFirstChild(k2, true) then
-                            return k2
-                        end
-                    end
-                    if type(v2) == "string" and v2 ~= "" and not (v2 == "status" or v2 == "time" or v2 == "active") then
-                        if workspace:FindFirstChild(v2, true) then
-                            return v2
-                        end
-                    end
+    if not ok then return nil end
+
+    -- Dump full response to console agar bisa lihat struktur data aslinya
+    if type(result) == "table" then
+        print("[F&M GetActiveEvents] Full response dump:")
+        local function dumpForBoss(t, indent)
+            indent = indent or ""
+            for k, v in pairs(t) do
+                if type(v) == "table" then
+                    print(indent .. tostring(k) .. " = {")
+                    dumpForBoss(v, indent .. "  ")
+                    print(indent .. "}")
+                else
+                    print(indent .. tostring(k) .. " = " .. tostring(v))
                 end
             end
         end
+        dumpForBoss(result)
+    elseif type(result) == "string" then
+        print("[F&M GetActiveEvents] Returned string: " .. result)
+    else
+        print("[F&M GetActiveEvents] Returned: " .. tostring(result))
+        return nil
     end
-    return nil
+
+    return nil -- Biarkan fallback methods yang handle sampai kita tau struktur response-nya
 end
 
 -- Helper: scan workspace for active boss model name (GENERIC / BEBAS NAMA)
@@ -1008,57 +1001,27 @@ local function findActiveBossName()
         return false
     end
 
-    -- 1. Coba lewat server event remote (Paling akurat)
-    local bossFromRemote = detectBossFromEvents()
-    if bossFromRemote and not isWordBlacklisted(bossFromRemote) then
-        print("[F&M Boss Auto] Step 1 (Remote Event) matched: " .. bossFromRemote)
-        return bossFromRemote
-    end
+    -- 1. Coba lewat server event remote (Paling akurat) - dump response dulu ke console
+    detectBossFromEvents()
 
-    -- 2. Scan PlayerGui untuk TextLabel yang menampilkan nama Boss secara dinamis
-    local bossFromGui = nil
-    pcall(function()
-        for _, gui in ipairs(LP.PlayerGui:GetDescendants()) do
-            if gui:IsA("TextLabel") and isGuiVisible(gui) then
-                local txt = gui.Text
-                -- Filter teks: abaikan teks kosong, angka/persentase HP saja, atau teks level
-                if txt ~= "" and #txt > 2 and #txt < 35 and not txt:find("%%") and not txt:find("^%d+$") and not txt:find("HP") then
-                    
-                    -- CRITICAL: Abaikan jika teks GUI mengandung kata kunci blacklist (seperti tombol "Base", "Items", dll)
-                    if not isWordBlacklisted(txt) then
-                        -- Coba cocokkan string teks ini langsung dengan model di Workspace
-                        -- CRITICAL: Pastikan model yang ditemukan BUKAN karakter player (username bisa muncul di nametag GUI!)
-                        local foundObj = workspace:FindFirstChild(txt, true)
-                        if foundObj and foundObj:IsA("Model") then
-                            local isPlayerChar = Players:GetPlayerFromCharacter(foundObj)
-                            if not isPlayerChar then
-                                bossFromGui = txt
-                                break
-                            end
-                        end
-                        -- Coba cari model yang mengandung nama ini
-                        for _, obj in ipairs(Workspace:GetDescendants()) do
-                            if obj:IsA("Model") and obj.Name ~= LP.Name and obj.Name:lower():find(txt:lower(), 1, true) then
-                                local isPlayer = Players:GetPlayerFromCharacter(obj)
-                                if not isPlayer then
-                                    bossFromGui = obj.Name
-                                    break
-                                end
-                            end
-                        end
-                        if bossFromGui then break end
+    -- 2. Scan Workspace untuk model dengan Humanoid HP sangat tinggi (> 100k) - PALING RELIABLE
+    -- Boss/monster selalu punya HP jauh lebih tinggi dari NPC biasa
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj.Name ~= LP.Name then
+            local isPlayer = Players:GetPlayerFromCharacter(obj)
+            if not isPlayer then
+                if not isWordBlacklisted(obj.Name) then
+                    local hum = obj:FindFirstChildOfClass("Humanoid")
+                    if hum and hum.MaxHealth > 1000 then
+                        print("[F&M Boss Auto] Step 2 (Humanoid HP > 1000) matched: " .. obj.Name .. " (HP: " .. hum.MaxHealth .. ")")
+                        return obj.Name
                     end
                 end
             end
         end
-    end)
-    if bossFromGui then
-        print("[F&M Boss Auto] Step 2 (GUI Text Match) matched: " .. bossFromGui)
-        return bossFromGui
     end
 
-
-    -- 3. Scan Workspace untuk model dengan attribute Health/HP tinggi (>10k) - BEBAS NAMA
+    -- 3. Scan Workspace untuk model dengan attribute Health/HP tinggi (>10k)
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") and obj.Name ~= LP.Name then
             local isPlayer = Players:GetPlayerFromCharacter(obj)
@@ -1066,7 +1029,7 @@ local function findActiveBossName()
                 if not isWordBlacklisted(obj.Name) then
                     local hpAttr = obj:GetAttribute("Health") or obj:GetAttribute("HP") or obj:GetAttribute("MaxHealth") or obj:GetAttribute("BossHealth")
                     if hpAttr and type(hpAttr) == "number" and hpAttr > 10000 then
-                        print("[F&M Boss Auto] Step 3 (HP Attribute) matched: " .. obj.Name)
+                        print("[F&M Boss Auto] Step 3 (HP Attribute > 10k) matched: " .. obj.Name)
                         return obj.Name
                     end
                 end
@@ -1074,60 +1037,9 @@ local function findActiveBossName()
         end
     end
 
-    -- 4. Fallback Proximity: Cari model non-player terdekat yang bukan NPC toko (BEBAS NAMA)
-    local char = LP.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        local nearestModel = nil
-        local nearestDist = 250 -- Jarak maksimal boss raid dari player
-        
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("Model") and obj ~= char and obj.Name ~= LP.Name then
-                local isPlayer = Players:GetPlayerFromCharacter(obj)
-                if not isPlayer then
-                    if not isWordBlacklisted(obj.Name) then
-                        -- Wajib memiliki HumanoidRootPart atau Head (menandakan ini Model Karakter/Monster, bukan map)
-                        local objPart = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head")
-                        if objPart then
-                            local d = (objPart.Position - hrp.Position).Magnitude
-                            if d < nearestDist then
-                                nearestModel = obj.Name
-                                nearestDist = d
-                            end
-                        end
-                    end
-                end
-            end
-        end
-
-        if nearestModel then
-            print("[F&M Boss Auto] Step 4 (Proximity Scan) matched: " .. nearestModel .. " (dist: " .. math.floor(nearestDist) .. ")")
-            return nearestModel
-        end
-    end
-
-
-    -- 5. Fallback Terakhir: Scan model dengan HP sangat tinggi (> 100k) di workspace
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") and obj.Name ~= LP.Name then
-            local isPlayer = Players:GetPlayerFromCharacter(obj)
-            if not isPlayer then
-                if not isWordBlacklisted(obj.Name) then
-                    local hum = obj:FindFirstChildOfClass("Humanoid")
-                    if hum and hum.MaxHealth > 100000 then
-                        print("[F&M Boss Auto] Step 5 (Humanoid HP) matched: " .. obj.Name)
-                        return obj.Name
-                    end
-                end
-            end
-        end
-    end
-
+    print("[F&M Boss Auto] No boss detected. Waiting for event...")
     return nil
 end
-
-
-
 
 
 TabRaid:CreateSection("Raid Boss Controls")
