@@ -2022,9 +2022,8 @@ local function getInventoryFish()
 end
 
 
--- Helper: cari NPC Fisherman — confirmed via debug:
---   Workspace.NPC.Fish.FishermanSellPrompt         (NPC visual)
---   Workspace.GameSystemObject.FishermanShop.FishermanSellPrompt (shop trigger)
+-- Helper: cari BasePart dari FishermanSellPrompt (confirmed name via debug)
+-- Naiki parent chain dari ProximityPrompt sampai ketemu BasePart
 local cachedFishermanNPC = nil
 local cachedFishermanPrompt = nil
 
@@ -2033,81 +2032,62 @@ local function findFishermanNPC()
         return cachedFishermanNPC, cachedFishermanPrompt
     end
 
-    local function tryGetPart(obj)
-        if not obj then return nil end
-        return obj:FindFirstChild("HumanoidRootPart")
-            or obj:FindFirstChild("Head")
-            or obj:FindFirstChildWhichIsA("BasePart")
-            or (obj:IsA("BasePart") and obj)
-    end
-
-    local myPos = Vector3.new(0,0,0)
-    pcall(function()
-        myPos = LP.Character.HumanoidRootPart.Position
-    end)
+    local myPos = Vector3.new()
+    pcall(function() myPos = LP.Character.HumanoidRootPart.Position end)
 
     local bestDist = math.huge
     local bestPart, bestPrompt = nil, nil
 
-    local function tryCandidate(obj, promptObj)
-        if not obj or not promptObj then return end
-        local part = tryGetPart(obj) or obj
-        local pos = Vector3.new(0,0,0)
-        pcall(function() pos = part.Position end)
-        local dist = (pos - myPos).Magnitude
-        if dist < bestDist then
-            bestDist = dist
-            bestPart = part
-            bestPrompt = promptObj
-        end
-    end
-
-    -- PATH 1: Workspace.GameSystemObject.FishermanShop (server distance check kemungkinan pakai ini)
-    pcall(function()
-        local shop = workspace.GameSystemObject.FishermanShop
-        local prompt = shop:FindFirstChild("FishermanSellPrompt", true) or shop:FindFirstChildWhichIsA("ProximityPrompt", true)
-        tryCandidate(shop, prompt)
-    end)
-
-    -- PATH 2: Workspace.NPC.Fish (NPC visual di world)
-    pcall(function()
-        local npcFolder = workspace.NPC.Fish
-        -- Fish bisa berupa Model atau Folder yang berisi NPC
-        if npcFolder:IsA("Model") then
-            local prompt = npcFolder:FindFirstChild("FishermanSellPrompt", true) or npcFolder:FindFirstChildWhichIsA("ProximityPrompt", true)
-            tryCandidate(npcFolder, prompt)
-        else
-            -- Jika Fish adalah folder, iterate children
-            for _, child in ipairs(npcFolder:GetChildren()) do
-                local prompt = child:FindFirstChild("FishermanSellPrompt", true) or child:FindFirstChildWhichIsA("ProximityPrompt", true)
-                tryCandidate(child, prompt)
-            end
-        end
-    end)
-
-    -- PATH 3: Fallback scan seluruh workspace untuk FishermanSellPrompt by name
-    if not bestPart then
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("ProximityPrompt") then
-                local nameMatch = obj.Name == "FishermanSellPrompt"
-                local textMatch = obj.ActionText:lower():find("sell fish") or obj.ObjectText:lower():find("fisherman")
-                if nameMatch or textMatch then
-                    tryCandidate(obj.Parent, obj)
+    -- Scan semua ProximityPrompt → cari FishermanSellPrompt
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") and (
+            obj.Name == "FishermanSellPrompt" or
+            obj.ActionText == "Sell Fish" or
+            obj.ObjectText:find("Fisherman")
+        ) then
+            -- Naiki parent chain sampai ketemu BasePart
+            local part = nil
+            local node = obj.Parent
+            while node and node ~= workspace do
+                if node:IsA("BasePart") then
+                    part = node
+                    break
                 end
+                -- Kalau node adalah Model, coba PrimaryPart atau child BasePart
+                if node:IsA("Model") then
+                    local pp = node.PrimaryPart
+                    if pp then part = pp; break end
+                    local bp = node:FindFirstChildWhichIsA("BasePart")
+                    if bp then part = bp; break end
+                end
+                node = node.Parent
+            end
+
+            if part then
+                local dist = (part.Position - myPos).Magnitude
+                print("[F&M DEBUG] Candidate: " .. obj:GetFullName() .. " dist=" .. math.floor(dist))
+                if dist < bestDist then
+                    bestDist = dist
+                    bestPart = part
+                    bestPrompt = obj
+                end
+            else
+                warn("[F&M DEBUG] Tidak dapat BasePart dari: " .. obj:GetFullName())
             end
         end
     end
 
     if bestPart then
-        print("[F&M Auto Sell] NPC/Shop ditemukan: " .. tostring(bestPrompt and bestPrompt:GetFullName()) .. " (dist: " .. math.floor(bestDist) .. " studs)")
+        print("[F&M Auto Sell] ✓ Shop Part: " .. bestPart:GetFullName() .. " | Prompt: " .. bestPrompt:GetFullName() .. " | Dist: " .. math.floor(bestDist))
         cachedFishermanNPC = bestPart
         cachedFishermanPrompt = bestPrompt
     else
-        warn("[F&M Auto Sell] Fisherman NPC/Shop tidak ditemukan!")
+        warn("[F&M Auto Sell] ✗ Tidak ada BasePart ditemukan dari FishermanSellPrompt!")
     end
 
     return cachedFishermanNPC, cachedFishermanPrompt
 end
+
 
 
 -- Utama: lakukan penjualan berdasarkan filter (dengan bypass teleportasi)
@@ -2243,37 +2223,42 @@ local function performSell()
     pcall(function() sellLabel:Set("Detected Remote: SellSelectedFish ✓") end)
 
     -- ============================================================
-    -- STEP 2: Teleport ke NPC + Fire ProximityPrompt (buka sesi toko di server)
+    -- ============================================================
+    -- STEP 2: Teleport ke BasePart NPC + Fire ProximityPrompt
     -- ============================================================
     if hrp then
         local npcPart, prompt = findFishermanNPC()
         if npcPart then
             oldCFrame = hrp.CFrame
-            print("[F&M Auto Sell] Teleporting ke: " .. tostring(prompt and prompt:GetFullName()))
+            print("[F&M Auto Sell] Teleporting ke BasePart: " .. npcPart:GetFullName())
+            print("[F&M Auto Sell] Position: " .. tostring(npcPart.Position))
 
-            -- Teleport ke posisi NPC/Shop
+            -- Teleport tepat ke BasePart (npcPart sudah dijamin BasePart)
             hrp.Anchored = true
-            hrp.CFrame = CFrame.new(npcPart.Position)
-            task.wait(0.7) -- Tunggu server replikasi posisi baru
+            hrp.CFrame = npcPart.CFrame  -- pakai CFrame langsung, bukan CFrame.new(Position)
+            task.wait(0.8) -- Tunggu server replikasi posisi
 
-            -- Fire ProximityPrompt untuk membuka sesi toko di server
+            -- Fire ProximityPrompt (HoldDuration aware)
             if prompt then
+                local holdTime = prompt.HoldDuration or 0
                 pcall(function()
                     if typeof(fireproximityprompt) == "function" then
                         fireproximityprompt(prompt)
                     else
                         prompt:InputHoldBegin()
-                        task.wait(0.15)
+                        task.wait(holdTime + 0.1)
                         prompt:InputHoldEnd()
                     end
                 end)
-                task.wait(0.5) -- Tunggu server register sesi toko
-                print("[F&M Auto Sell] ProximityPrompt fired!")
+                task.wait(0.6) -- Tunggu server register sesi
+                print("[F&M Auto Sell] ProximityPrompt fired! (holdTime=" .. holdTime .. ")")
             end
         else
-            warn("[F&M Auto Sell] Tidak bisa teleport — NPC tidak ditemukan")
+            warn("[F&M Auto Sell] NPC BasePart tidak ditemukan — menjual dari posisi saat ini")
         end
     end
+
+
 
 
     -- ============================================================
