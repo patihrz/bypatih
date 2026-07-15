@@ -2234,22 +2234,48 @@ local function performSell()
     pcall(function() sellLabel:Set("Detected Remote: SellSelectedFish ✓") end)
 
     -- ============================================================
-    -- STEP 2: Teleport ke NPC jika toggle aktif (opsional)
+    -- STEP 2: Teleport ke NPC + Buka Sesi Toko via ProximityPrompt
+    -- Server melakukan distance check DAN cek apakah shop sudah dibuka
     -- ============================================================
     if hrp and teleportToSell then
         local npcPart = findFishermanNPC()
         if npcPart then
             oldCFrame = hrp.CFrame
-            Rayfield:Notify({
-                Title = "Teleporting to Merchant",
-                Content = "Mendekati NPC: " .. npcPart.Parent.Name,
-                Duration = 2
-            })
+            print("[F&M Auto Sell] NPC ditemukan: " .. npcPart.Parent:GetFullName())
+
+            -- Teleport tepat ke NPC
             hrp.Anchored = true
             hrp.CFrame = npcPart.CFrame
-            task.wait(0.5)
+            task.wait(0.6) -- Tunggu replication ke server
+
+            -- Fire ProximityPrompt untuk membuka sesi toko di server
+            -- (Server mungkin butuh ini sebelum menerima SellSelectedFish)
+            local prompt = npcPart.Parent:FindFirstChildWhichIsA("ProximityPrompt", true)
+                or npcPart:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if prompt then
+                print("[F&M Auto Sell] Firing ProximityPrompt: " .. prompt:GetFullName())
+                pcall(function()
+                    if typeof(fireproximityprompt) == "function" then
+                        fireproximityprompt(prompt)
+                    else
+                        prompt:InputHoldBegin()
+                        task.wait(0.2)
+                        prompt:InputHoldEnd()
+                    end
+                end)
+                task.wait(0.5) -- Tunggu server mencatat sesi toko terbuka
+            else
+                warn("[F&M Auto Sell] ProximityPrompt tidak ditemukan di NPC!")
+            end
         else
-            warn("[F&M Auto Sell] NPC Fisherman tidak ditemukan, menjual tanpa teleport...")
+            warn("[F&M Auto Sell] NPC Fisherman tidak ditemukan!")
+            -- Debug: print semua ProximityPrompt di workspace
+            print("[F&M Auto Sell] Daftar ProximityPrompt di workspace:")
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("ProximityPrompt") then
+                    print("  -> " .. obj:GetFullName() .. " | " .. obj.ObjectText .. " | " .. obj.ActionText)
+                end
+            end
         end
     end
 
