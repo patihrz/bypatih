@@ -1917,104 +1917,110 @@ local function scanTableForInventory(tbl, depth, list)
 end
 
 -- Helper: ambil inventory ikan LANGSUNG dari server via GetFishInventory remote
--- (Confirmed via Cobalt RemoteSpy: FishermanShopService.RF.GetFishInventory)
+-- STRUKTUR CONFIRMED via debug:
+--   result = DICTIONARY {
+--     FishList = ARRAY [                         <-- ini yang kita iterasi
+--       { FishId="Barred_Halmet", Rarity="Common", Count=28,
+--         Instances = ARRAY [ {InstanceId=?,...}, {InstanceId=?,...}, ... ] },
+--       ...
+--     ],
+--     TotalValue = number,
+--     FavoritedFish = {[hexId]=true,...},
+--     Money = number,
+--   }
 local function getInventoryFish()
     local fishList = {}
 
-    -- ============================================================
-    -- JALUR UTAMA: Panggil GetFishInventory remote langsung ke server
-    -- (Confirmed via Cobalt: FishermanShopService.RF.GetFishInventory)
-    -- ============================================================
     local getInvRemote = nil
-
-    -- Coba path exact yang sudah dikonfirmasi lewat Cobalt
     pcall(function()
         getInvRemote = game:GetService("ReplicatedStorage")
             .Packages._Index["sleitnick_knit@1.7.0"]
             .knit.Services.FishermanShopService.RF.GetFishInventory
     end)
-
-    -- Fallback: pakai findKnitRemote jika path berubah versi
     if not getInvRemote then
         getInvRemote = findKnitRemote("FishermanShopService", "GetFishInventory")
     end
 
-    if getInvRemote then
-        local ok, result = pcall(function()
-            return getInvRemote:InvokeServer()
-        end)
-
-        if ok and type(result) == "table" then
-            print("[F&M Auto Sell] GetFishInventory berhasil! Raw result keys: " .. tostring(#result))
-
-            -- Format A: Array flat  → { {FishId, InstanceId, Count, Rarity}, ... }
-            for _, entry in ipairs(result) do
-                if type(entry) == "table" then
-                    local fishId    = entry.FishId    or entry.fishId    or entry.Name or entry.name
-                    local instanceId= entry.InstanceId or entry.instanceId or entry.UUID or entry.uuid
-                    local count     = entry.Count     or entry.count     or 1
-                    local rarity    = entry.Rarity    or entry.rarity    or entry.RarityId or entry.rarityId
-
-                    if type(fishId) == "string" and type(instanceId) == "string" then
-                        -- Pastikan tidak duplikat
-                        local exists = false
-                        for _, x in ipairs(fishList) do
-                            if x.InstanceId == instanceId then exists = true; break end
-                        end
-                        if not exists then
-                            table.insert(fishList, {
-                                FishId = fishId,
-                                InstanceId = instanceId,
-                                Count = count,
-                                Rarity = rarity
-                            })
-                        end
-                    end
-                end
-            end
-
-            -- Format B: Dictionary grouped by rarity → { Common = { {...}, {...} }, Uncommon = {...} }
-            if #fishList == 0 then
-                for rarityKey, group in pairs(result) do
-                    if type(group) == "table" then
-                        for _, entry in ipairs(group) do
-                            if type(entry) == "table" then
-                                local fishId     = entry.FishId    or entry.fishId    or entry.Name or entry.name
-                                local instanceId = entry.InstanceId or entry.instanceId or entry.UUID or entry.uuid
-                                local count      = entry.Count     or entry.count     or 1
-                                local rarity     = entry.Rarity    or entry.rarity    or rarityKey
-
-                                if type(fishId) == "string" and type(instanceId) == "string" then
-                                    local exists = false
-                                    for _, x in ipairs(fishList) do
-                                        if x.InstanceId == instanceId then exists = true; break end
-                                    end
-                                    if not exists then
-                                        table.insert(fishList, {
-                                            FishId = fishId,
-                                            InstanceId = instanceId,
-                                            Count = count,
-                                            Rarity = rarity
-                                        })
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-
-            print("[F&M Auto Sell] Parsed " .. #fishList .. " ikan dari GetFishInventory.")
-        else
-            warn("[F&M Auto Sell] GetFishInventory:InvokeServer() gagal: " .. tostring(result))
-        end
-    else
+    if not getInvRemote then
         warn("[F&M Auto Sell] Remote GetFishInventory tidak ditemukan!")
+        pcall(function() inventoryLabel:Set("Inventory Items: Remote NOT FOUND") end)
+        return fishList
     end
 
+    local ok, result = pcall(function()
+        return getInvRemote:InvokeServer()
+    end)
+
+    if not ok or type(result) ~= "table" then
+        warn("[F&M Auto Sell] GetFishInventory gagal: " .. tostring(result))
+        pcall(function() inventoryLabel:Set("Inventory Items: Invoke Failed") end)
+        return fishList
+    end
+
+    -- result adalah DICTIONARY, bukan array!
+    -- Ambil result.FishList yang merupakan array of fish type entries
+    local rawFishList = result.FishList or result.fishList or result.Fish or result.fish
+
+    if type(rawFishList) ~= "table" then
+        warn("[F&M Auto Sell] result.FishList tidak ada! Keys tersedia:")
+        for k, v in pairs(result) do
+            print("  [" .. tostring(k) .. "] = " .. type(v))
+        end
+        pcall(function() inventoryLabel:Set("Inventory Items: FishList key missing") end)
+        return fishList
+    end
+
+    print("[F&M Auto Sell] FishList length: " .. #rawFishList)
+
+    for _, fishEntry in ipairs(rawFishList) do
+        local fishId    = fishEntry.FishId or fishEntry.fishId or fishEntry.Name or fishEntry.name
+        local rarity    = fishEntry.Rarity or fishEntry.rarity or "Common"
+        local instances = fishEntry.Instances or fishEntry.instances
+
+        -- Hanya proses ikan yang ada di tas (punya Instances)
+        if type(fishId) == "string" and type(instances) == "table" and #instances > 0 then
+            print("[F&M Auto Sell] " .. fishId .. " [" .. tostring(rarity) .. "] x" .. #instances)
+
+            for _, inst in ipairs(instances) do
+                local instanceId = nil
+
+                if type(inst) == "table" then
+                    -- Coba semua kemungkinan field name untuk InstanceId
+                    instanceId = inst.InstanceId or inst.instanceId
+                        or inst.Id or inst.id
+                        or inst.UUID or inst.uuid
+                        or inst.GUID or inst.guid
+                        or inst.Hash or inst.hash
+                        or inst.Key or inst.key
+
+                    -- Jika field tidak ketemu, log semua key untuk debug
+                    if not instanceId then
+                        local keys = {}
+                        for k in pairs(inst) do table.insert(keys, tostring(k)) end
+                        warn("[F&M Auto Sell] InstanceId field not found! Available keys: " .. table.concat(keys, ", "))
+                    end
+                elseif type(inst) == "string" then
+                    -- Instance langsung berupa string hex
+                    instanceId = inst
+                end
+
+                if type(instanceId) == "string" and instanceId ~= "" then
+                    table.insert(fishList, {
+                        FishId     = fishId,
+                        InstanceId = instanceId,
+                        Count      = 1,  -- SellSelectedFish selalu Count=1 per instance
+                        Rarity     = rarity
+                    })
+                end
+            end
+        end
+    end
+
+    print("[F&M Auto Sell] Total parsed: " .. #fishList .. " instances")
     pcall(function() inventoryLabel:Set("Inventory Items: Found " .. #fishList) end)
     return fishList
 end
+
 
 -- Utama: lakukan penjualan berdasarkan filter
 -- Helper: cari NPC Fisherman (penjual ikan) untuk bypass jarak jauh
