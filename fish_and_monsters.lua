@@ -207,6 +207,7 @@ end
 
 -- Find Raid Orb in workspace
 local function findRaidOrb()
+    -- 1. Cari lewat nama object di Workspace
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("BasePart") or obj:IsA("Model") then
             local name = obj.Name:lower()
@@ -214,13 +215,31 @@ local function findRaidOrb()
                 if obj:IsA("BasePart") then
                     return obj
                 else
-                    return obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+                    local bp = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+                    if bp then return bp end
+                end
+            end
+        end
+    end
+
+    -- 2. Cari lewat BillboardGui / TextLabel event raid yang melayang di Workspace (sangat kuat!)
+    -- Penanda text seperti: "Raid will start", "Ready:", "Participate", dll.
+    for _, gui in ipairs(Workspace:GetDescendants()) do
+        if gui:IsA("TextLabel") then
+            local txt = gui.Text:lower()
+            if txt:find("raid") or txt:find("start in") or txt:find("ready:") or txt:find("participate") or txt:find("min:") then
+                local billboard = gui:FindAncestorOfClass("BillboardGui")
+                local adornee = billboard and (billboard.Adornee or billboard.Parent)
+                if adornee and adornee:IsA("BasePart") then
+                    print("[F&M Finder] Found Raid Zone via Billboard text '" .. gui.Text .. "': " .. adornee:GetFullName())
+                    return adornee
                 end
             end
         end
     end
     return nil
 end
+
 
 -- Robust Boss Teleport Logic (Handles model, partial matches, billboards, and circles/orbs)
 local function teleportToBossLogic(targetName)
@@ -1182,23 +1201,46 @@ TabRaid:CreateButton({
         print("findKnitRemote result = " .. tostring(pt))
         if pt then print("  Full path: " .. pt:GetFullName()) end
 
-        -- Scan semua model di workspace (10 level)
-        print("--- Scanning Workspace Models (Boss / Monster patterns) ---")
-        local count = 0
+        -- Scan Workspace untuk Luther atau NPC lain
+        print("--- Scanning NPC Models ---")
         for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("Model") then
-                local n = obj.Name
-                if n:lower():find("boss") or n:lower():find("monster") or n:lower():find("fish") or n:lower():find("raid") or n:lower():find("hermit") or n:lower():find("crab") then
-                    print("  Found: " .. n .. " (" .. obj:GetFullName() .. ")")
-                    count = count + 1
-                    if count >= 20 then print("  [... truncated]") break end
+            if obj:IsA("Model") and (obj.Name:lower():find("luther") or obj.Name:lower():find("fisherman") or obj.Name:lower():find("sell")) then
+                local hrp = obj:FindFirstChildWhichIsA("BasePart")
+                print("  NPC Found: " .. obj.Name .. " (" .. obj:GetFullName() .. ") | Pos: " .. (hrp and tostring(hrp.Position) or "N/A"))
+            end
+        end
+
+        -- Scan semua BillboardGuis di Workspace
+        print("--- Scanning BillboardGuis/TextLabels in Workspace ---")
+        local countB = 0
+        for _, gui in ipairs(Workspace:GetDescendants()) do
+            if gui:IsA("BillboardGui") or gui:IsA("TextLabel") then
+                local txt = gui:IsA("TextLabel") and gui.Text or ""
+                if txt ~= "" or gui.Name:lower():find("raid") or gui.Name:lower():find("participate") or gui.Name:lower():find("boss") then
+                    local parent = gui.Parent
+                    print("  Gui: " .. gui.Name .. " (Text: '" .. txt .. "') | Parent: " .. (parent and parent:GetFullName() or "N/A"))
+                    countB = countB + 1
+                    if countB >= 15 then break end
                 end
             end
         end
-        if count == 0 then print("  (tidak ada model relevan ditemukan)") end
 
-        -- Scan BossFishEventService langsung
-        print("--- Scanning BossFishEventService RF folder ---")
+        -- Scan semua parts dengan kata kunci raid/event di Workspace
+        print("--- Scanning Raid/Event/Portal Parts in Workspace ---")
+        local countP = 0
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                local name = obj.Name:lower()
+                if name:find("raid") or name:find("orb") or name:find("circle") or name:find("portal") or name:find("event") or name:find("participate") or name:find("zone") then
+                    print("  Part Found: " .. obj.Name .. " (" .. obj:GetFullName() .. ") | Pos: " .. tostring(obj.Position))
+                    countP = countP + 1
+                    if countP >= 15 then break end
+                end
+            end
+        end
+
+        -- Scan ReplicatedStorage untuk Boss Service
+        print("--- Scanning ReplicatedStorage RF folder ---")
         local rep = game:GetService("ReplicatedStorage")
         local packages = rep:FindFirstChild("Packages")
         if packages then
@@ -1219,8 +1261,6 @@ TabRaid:CreateButton({
                                 else
                                     print("  RF folder NOT FOUND!")
                                 end
-                            else
-                                print("  BossFishEventService NOT FOUND in " .. child.Name)
                             end
                         end
                     end
@@ -1231,6 +1271,7 @@ TabRaid:CreateButton({
         Rayfield:Notify({Title = "Diagnosis Done!", Content = "Check console output!", Duration = 3})
     end
 })
+
 
 TabRaid:CreateInput({
     Name = "Boss Name (Manual Input)",
