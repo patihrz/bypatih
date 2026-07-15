@@ -1350,10 +1350,69 @@ TabRaid:CreateSlider({
     end
 })
 
+-- Helper: Trigger participate ProximityPrompt atau tombol GUI
+local function triggerParticipate()
+    -- 1. Scan ProximityPrompts dekat player (jarak < 40 studs)
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("ProximityPrompt") then
+                local actText = obj.ActionText:lower()
+                local objText = obj.ObjectText:lower()
+                if actText:find("participate") or actText:find("join") or actText:find("raid") or actText:find("ready") or
+                   objText:find("participate") or objText:find("join") or objText:find("raid") or objText:find("ready") then
+                    
+                    local promptParent = obj.Parent
+                    if promptParent and promptParent:IsA("BasePart") then
+                        local dist = (promptParent.Position - hrp.Position).Magnitude
+                        if dist < 40 then
+                            print("[F&M Auto Join] Triggering ProximityPrompt: " .. obj:GetFullName())
+                            task.spawn(function()
+                                if typeof(fireproximityprompt) == "function" then
+                                    fireproximityprompt(obj, 1)
+                                else
+                                    obj:InputHoldBegin()
+                                    task.wait(0.2)
+                                    obj:InputHoldEnd()
+                                end
+                            end)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2. Scan PlayerGui untuk tombol "PARTICIPATE" / "JOIN"
+    for _, gui in ipairs(LP.PlayerGui:GetDescendants()) do
+        if (gui:IsA("TextButton") or gui:IsA("ImageButton")) and isGuiVisible(gui) then
+            local fullName = gui:GetFullName():lower()
+            if not fullName:find("rayfield") then
+                local text = ""
+                pcall(function() text = gui.Text:lower() end)
+                local name = gui.Name:lower()
+                if text:find("participate") or text:find("join") or name:find("participate") or name:find("join") then
+                    print("[F&M Auto Join] Clicking GUI Button: " .. gui:GetFullName())
+                    pcall(function()
+                        if typeof(firesignal) == "function" then
+                            firesignal(gui.MouseButton1Click)
+                            firesignal(gui.Activated)
+                        else
+                            gui.MouseButton1Click:Fire()
+                            gui.Activated:Fire()
+                        end
+                    end)
+                end
+            end
+        end
+    end
+end
+
 -- Auto Join Raid Loop
 task.spawn(function()
     while true do
-        task.wait(5)
+        task.wait(2) -- Lebih responsif
         if autoJoinRaid then
             local orb = findRaidOrb()
             if orb then
@@ -1361,6 +1420,8 @@ task.spawn(function()
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
                 if hrp then
                     hrp.CFrame = orb.CFrame + Vector3.new(0, 3, 0)
+                    task.wait(0.4)
+                    triggerParticipate()
                 end
             end
         end
@@ -1445,17 +1506,37 @@ task.spawn(function()
                 end
             end
 
-            -- Ambil targetsToTap
+            -- Ambil targetsToTap (Hanya yang dekat / di map yang sama dengan player)
             local targetsToTap = {}
+            local char = LP.Character
+            local playerHrp = char and char:FindFirstChild("HumanoidRootPart")
+            
             for _, bName in ipairs(activeBossNames) do
-                table.insert(targetsToTap, bName)
+                local bossModel = workspace:FindFirstChild(bName, true)
+                if bossModel and playerHrp then
+                    local bossHrp = bossModel:FindFirstChild("HumanoidRootPart") or bossModel:FindFirstChildWhichIsA("BasePart")
+                    if bossHrp then
+                        local dist = (bossHrp.Position - playerHrp.Position).Magnitude
+                        if dist < 450 then -- Jarak aman agar tidak kena anti-cheat / bugs
+                            table.insert(targetsToTap, bName)
+                        end
+                    end
+                else
+                    -- Jika model fisik belum spawn (masih penanda event),
+                    -- tapi player sudah berdiri sangat dekat dengan Raid Orb/Circle:
+                    local orb = findRaidOrb()
+                    if orb and playerHrp then
+                        local dist = (orb.Position - playerHrp.Position).Magnitude
+                        if dist < 120 then
+                            table.insert(targetsToTap, bName)
+                        end
+                    end
+                end
             end
 
             if #targetsToTap == 0 then
                 -- Fallback: Cari model terdekat dari player di workspace
-                local char = LP.Character
-                local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                if hrp then
+                if playerHrp then
                     local nearestModel = nil
                     local nearestDist = 150
                     for _, obj in ipairs(workspace:GetChildren()) do
@@ -1464,7 +1545,7 @@ task.spawn(function()
                             if not isPlayer then
                                 local objPart = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
                                 if objPart then
-                                    local d = (objPart.Position - hrp.Position).Magnitude
+                                    local d = (objPart.Position - playerHrp.Position).Magnitude
                                     if d < nearestDist then
                                         nearestModel = obj
                                         nearestDist = d
