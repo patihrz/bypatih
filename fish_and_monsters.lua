@@ -1913,7 +1913,13 @@ TabDeveloper:CreateButton({
 TabDeveloper:CreateButton({
     Name = "Decompile Pet & Fishing Controllers (F9 Console)",
     Callback = function()
-        print("=== DECOMPILING TARGET CONTROLLERS ===")
+        local outputText = "=== DECOMPILING TARGET CONTROLLERS ===\n"
+        local function log(str)
+            print(str)
+            outputText = outputText .. str .. "\n"
+        end
+        
+        log("Searching for controllers...")
         local targetNames = {"PetController", "FishingController", "MinigameController", "PetConfig", "FishingConfig", "PetData", "FishingData"}
         local found = 0
         
@@ -1936,43 +1942,86 @@ TabDeveloper:CreateButton({
                     
                     if matched then
                         found = found + 1
-                        print(string.format("\n--- [%d] DECOMPILING: %s (%s) ---", found, obj:GetFullName(), obj.ClassName))
+                        log(string.format("\n--- [%d] DECOMPILING: %s (%s) ---", found, obj:GetFullName(), obj.ClassName))
                         local ok, code = pcall(decompile, obj)
                         if ok and type(code) == "string" and code ~= "" then
                             -- Print line-by-line to prevent Roblox console line truncation
                             local lines = string.split(code, "\n")
                             for idx, line in ipairs(lines) do
-                                print(string.format("L%d: %s", idx, line))
+                                log(string.format("L%d: %s", idx, line))
                             end
-                            print("------------------------------------------")
+                            log("------------------------------------------")
                         else
-                            print("Decompilation failed / returned nil: " .. tostring(code))
+                            log("Decompilation failed / returned nil: " .. tostring(code))
                         end
                     end
                 end
             end
         end
-        print("=== DECOMPILATION RUN COMPLETE ===")
-        Rayfield:Notify({Title = "Decompile Complete", Content = "Decompiled " .. found .. " targets. Check console!", Duration = 4})
+        log("=== DECOMPILATION RUN COMPLETE ===")
+        
+        -- Copy to clipboard or fallback to file write
+        local clipSuccess = pcall(function()
+            if setclipboard then setclipboard(outputText)
+            elseif toclipboard then toclipboard(outputText)
+            else error("No clipboard") end
+        end)
+        
+        if clipSuccess then
+            Rayfield:Notify({Title = "Copied to Clipboard!", Content = "Decompiled code copied! Paste it in chat.", Duration = 5})
+        else
+            local fileSuccess = pcall(function()
+                writefile("pet_fishing_decompile.txt", outputText)
+            end)
+            if fileSuccess then
+                Rayfield:Notify({Title = "Saved to File!", Content = "Saved as 'pet_fishing_decompile.txt' in executor workspace.", Duration = 5})
+            else
+                Rayfield:Notify({Title = "Decompile Done", Content = "Finished! Check F9 Console.", Duration = 5})
+            end
+        end
     end
 })
 
 TabDeveloper:CreateButton({
     Name = "List All Client Scripts (F9 Console)",
     Callback = function()
-        print("=== ALL CLIENT SCRIPTS ===")
+        local outputText = "=== ALL CLIENT SCRIPTS ===\n"
+        local function log(str)
+            print(str)
+            outputText = outputText .. str .. "\n"
+        end
+        
         local found = 0
         for _, obj in ipairs(game:GetDescendants()) do
             if obj:IsA("LocalScript") or obj:IsA("ModuleScript") then
                 local path = obj:GetFullName()
                 if not path:find("CoreGui") and not path:find("Chat") and not path:find("Animate") and not path:find("Freecam") then
                     found = found + 1
-                    print(string.format("[%d] %s (%s)", found, path, obj.ClassName))
+                    log(string.format("[%d] %s (%s)", found, path, obj.ClassName))
                 end
             end
         end
-        print("=== SCAN COMPLETE (Found " .. found .. " scripts) ===")
-        Rayfield:Notify({Title = "Scan Complete", Content = "Printed " .. found .. " script paths in console!", Duration = 3})
+        log("=== SCAN COMPLETE (Found " .. found .. " scripts) ===")
+        
+        -- Copy to clipboard or fallback to file write
+        local clipSuccess = pcall(function()
+            if setclipboard then setclipboard(outputText)
+            elseif toclipboard then toclipboard(outputText)
+            else error("No clipboard") end
+        end)
+        
+        if clipSuccess then
+            Rayfield:Notify({Title = "Copied to Clipboard!", Content = "Script list copied! Paste it in chat.", Duration = 5})
+        else
+            local fileSuccess = pcall(function()
+                writefile("client_scripts_list.txt", outputText)
+            end)
+            if fileSuccess then
+                Rayfield:Notify({Title = "Saved to File!", Content = "Saved as 'client_scripts_list.txt' in executor workspace.", Duration = 5})
+            else
+                Rayfield:Notify({Title = "Scan Done", Content = "Finished! Check F9 Console.", Duration = 5})
+            end
+        end
     end
 })
 
