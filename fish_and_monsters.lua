@@ -2098,6 +2098,69 @@ TabDeveloper:CreateButton({
     end
 })
 
+local decompileStart = 2500
+local decompileEnd = 2750
+
+TabDeveloper:CreateInput({
+    Name = "Decompile Start Line",
+    PlaceholderText = "2500",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        decompileStart = tonumber(Text) or 2500
+    end
+})
+
+TabDeveloper:CreateInput({
+    Name = "Decompile End Line",
+    PlaceholderText = "2750",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        decompileEnd = tonumber(Text) or 2750
+    end
+})
+
+TabDeveloper:CreateButton({
+    Name = "Decompile Range of FishingController (Auto Clipboard)",
+    Callback = function()
+        local outputText = string.format("=== FISHINGCONTROLLER DECOMPILE L%d - L%d ===\n", decompileStart, decompileEnd)
+        local function log(str)
+            print(str)
+            outputText = outputText .. str .. "\n"
+        end
+        
+        local obj = LP.PlayerScripts.Controllers.FishingController
+        local ok, code = pcall(decompile, obj)
+        if ok and type(code) == "string" and code ~= "" then
+            local lines = string.split(code, "\n")
+            for idx = decompileStart, math.min(decompileEnd, #lines) do
+                log(string.format("L%d: %s", idx, lines[idx]))
+            end
+        else
+            log("Decompilation failed: " .. tostring(code))
+        end
+        
+        -- Copy to clipboard
+        local clipSuccess = pcall(function()
+            if setclipboard then setclipboard(outputText)
+            elseif toclipboard then toclipboard(outputText)
+            else error("No clipboard") end
+        end)
+        
+        if clipSuccess then
+            Rayfield:Notify({Title = "Copied to Clipboard!", Content = "Line range copied! Paste it in chat.", Duration = 5})
+        else
+            local fileSuccess = pcall(function()
+                writefile("fishing_decompile_range.txt", outputText)
+            end)
+            if fileSuccess then
+                Rayfield:Notify({Title = "Saved to File!", Content = "Saved as 'fishing_decompile_range.txt' in executor workspace.", Duration = 5})
+            else
+                Rayfield:Notify({Title = "Decompile Done", Content = "Finished! Check F9 Console.", Duration = 5})
+            end
+        end
+    end
+})
+
 TabDeveloper:CreateButton({
     Name = "[DEBUG] Scan Inventory & Client State (Console)",
     Callback = function()
