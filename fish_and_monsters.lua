@@ -2055,6 +2055,50 @@ TabDeveloper:CreateButton({
 })
 
 TabDeveloper:CreateButton({
+    Name = "Scan Fishing Controller Connections (Auto Clipboard)",
+    Callback = function()
+        local outputText = "=== FISHING CONTROLLER CONNECTIONS ===\n"
+        local function log(str)
+            print(str)
+            outputText = outputText .. str .. "\n"
+        end
+        
+        local obj = LP.PlayerScripts.Controllers.FishingController
+        local ok, code = pcall(decompile, obj)
+        if ok and type(code) == "string" and code ~= "" then
+            local lines = string.split(code, "\n")
+            for idx, line in ipairs(lines) do
+                if line:find("v_u_101") or line:find("v_u_208") or line:find("applyDifficultySettings") or line:find("isAutoCatch") or line:find("FishingPullState") then
+                    log(string.format("Line %d: %s", idx, line:gsub("^%s+", "")))
+                end
+            end
+        else
+            log("Decompilation failed: " .. tostring(code))
+        end
+        
+        -- Copy to clipboard or fallback to file write
+        local clipSuccess = pcall(function()
+            if setclipboard then setclipboard(outputText)
+            elseif toclipboard then toclipboard(outputText)
+            else error("No clipboard") end
+        end)
+        
+        if clipSuccess then
+            Rayfield:Notify({Title = "Copied to Clipboard!", Content = "Scan results copied! Paste it in chat.", Duration = 5})
+        else
+            local fileSuccess = pcall(function()
+                writefile("fishing_connections.txt", outputText)
+            end)
+            if fileSuccess then
+                Rayfield:Notify({Title = "Saved to File!", Content = "Saved as 'fishing_connections.txt' in executor workspace.", Duration = 5})
+            else
+                Rayfield:Notify({Title = "Scan Done", Content = "Finished! Check F9 Console.", Duration = 5})
+            end
+        end
+    end
+})
+
+TabDeveloper:CreateButton({
     Name = "[DEBUG] Scan Inventory & Client State (Console)",
     Callback = function()
         print("=== INVENTORY & CLIENT STATE SCAN ===")
