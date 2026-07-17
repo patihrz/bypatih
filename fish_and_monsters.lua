@@ -86,7 +86,33 @@ local detectedSellRemote = nil
 
 local remoteSpyEnabled = false
 
-
+-- Metatable Remote Spy Hook
+local myNamecallHook
+myNamecallHook = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+    
+    if remoteSpyEnabled then
+        pcall(function()
+            if self:IsA("RemoteEvent") or self:IsA("RemoteFunction") then
+                local path = self:GetFullName()
+                if not path:find("Movement") and not path:find("Ping") and not path:find("Heartbeat") and not path:find("Physics") and not path:find("Update") then
+                    print(string.format("[RemoteSpy] %s:%s()", path, method))
+                    for i, v in ipairs(args) do
+                        print(string.format("  Arg #%d: %s (%s)", i, tostring(v), type(v)))
+                        if type(v) == "table" then
+                            for k2, v2 in pairs(v) do
+                                print(string.format("    [%s] = %s (%s)", tostring(k2), tostring(v2), type(v2)))
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+    end
+    
+    return myNamecallHook(self, ...)
+end)
 
 -- Create Window
 local Window = Rayfield:CreateWindow({
