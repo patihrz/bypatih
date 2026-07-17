@@ -52,7 +52,6 @@ local autoTap = false
 local tapDelay = 0.05
 
 -- Remote Farming States
-local autoFishingRemote = false
 local autoBlatantFishing = false
 local autoBlatantFishingV2 = false
 local blatantCycleDelay = 0.5
@@ -451,16 +450,7 @@ end
 ----------------------------------------------------
 -- AUTO FISHING TAB
 ----------------------------------------------------
-TabFishing:CreateSection("Remote Bypass Farming (Recommended)")
-
-TabFishing:CreateToggle({
-    Name = "Auto Fishing (Remote Bypass)",
-    CurrentValue = false,
-    Flag = "AutoFishingRemote",
-    Callback = function(value)
-        autoFishingRemote = value
-    end
-})
+TabFishing:CreateSection("Auto Catch Assist")
 
 TabFishing:CreateToggle({
     Name = "Auto Catch Assist (Manual/AFK)",
@@ -502,7 +492,6 @@ TabFishing:CreateToggle({
         autoBlatantFishing = value
         if value then
             -- Matikan mode lain agar tidak tabrakan
-            autoFishingRemote = false
             autoBlatantFishingV2 = false
             print("[F&M Blatant] ENABLED - Mode blatant v1 aktif.")
             Rayfield:Notify({Title = "Blatant v1 ON", Content = "Spam fishing max speed aktif!", Duration = 3})
@@ -518,7 +507,6 @@ TabFishing:CreateToggle({
         autoBlatantFishingV2 = value
         if value then
             -- Matikan mode lain agar tidak tabrakan
-            autoFishingRemote = false
             autoBlatantFishing = false
             print("[F&M Blatant v2] ENABLED - Mode blatant v2 gacor & aman aktif.")
             Rayfield:Notify({Title = "Blatant v2 ON", Content = "Blatant v2 gacor & inventory-safe aktif!", Duration = 3})
@@ -604,103 +592,7 @@ local function getWaterTarget(origin)
     return Vector3.new(castPos.X, waterY, castPos.Z)
 end
 
-----------------------------------------------------
--- AUTO FISHING REMOTE BYPASS (Stabil/Original)
-----------------------------------------------------
-local function runRemoteFishingCycle()
-    local ThrowFloater        = findKnitRemote("FishingReplicationService", "ThrowFloater")
-    local ConfirmFloatingCast = findKnitRemote("FishingReplicationService", "ConfirmFloatingCast")
-    local RequestFishBite     = findKnitRemote("FishingRewardService",      "RequestFishBite")
-    local StartPulling        = findKnitRemote("FishingReplicationService", "StartPulling")
-    local StopFishing         = findKnitRemote("FishingReplicationService", "StopFishing")
-    local FishingPullInput    = findKnitRemote("FishingRewardService",      "FishingPullInput")
 
-    if not (ThrowFloater and ConfirmFloatingCast and RequestFishBite and StartPulling and StopFishing and FishingPullInput) then
-        warn("[F&M Bypass] Missing remotes!") return
-    end
-
-    equipRod()
-    task.wait(0.3)
-    if not autoFishingRemote then return end
-
-    pcall(function() StopFishing:InvokeServer() end)
-    task.wait(0.3)
-
-    local char = LP.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    -- Deteksi dinamis nama joran (contoh: DryardRod)
-    local rod = getRod()
-    local activeRodName = rod and rod.Name or rodNameInput
-    
-    -- Deteksi dinamis nama floater dari attribute
-    local activeFloaterName = floaterNameInput
-    for k, v in pairs(LP:GetAttributes()) do
-        if type(v) == "string" and (k:lower():find("floater") or v:lower():find("floater")) and v ~= "" then
-            activeFloaterName = v
-            break
-        end
-    end
-
-    local origin = hrp.Position
-    local target = getWaterTarget(origin)
-    local floatConfig = {LightInfluence=0, FaceCamera=true, Color=Color3.new(0.94,0.31,1), Transparency=0.02, LightEmission=1, Width=0.24}
-
-    -- 1. ThrowFloater
-    pcall(function() ThrowFloater:InvokeServer(origin, target, activeRodName, activeFloaterName, floatConfig, 2.5) end)
-    task.wait(1.5)
-    if not autoFishingRemote then return end
-
-    -- 2. ConfirmFloatingCast
-    pcall(function() ConfirmFloatingCast:InvokeServer(target) end)
-
-    -- 3. Tunggu bite (natural delay)
-    task.wait(math.random(2, 3))
-    if not autoFishingRemote then return end
-
-    -- 4. RequestFishBite - ambil SessionId dari response
-    local uuid = nil
-    local biteOk, biteData = pcall(function()
-        return RequestFishBite:InvokeServer(target + Vector3.new(0, 0.1, 0))
-    end)
-    if biteOk and type(biteData) == "table" then
-        uuid = biteData.SessionId or biteData.sessionId or biteData.castId or extractUUID(biteData)
-    end
-    if not uuid then uuid = LP:GetAttribute("FishingCastId") end
-    if not uuid then warn("[F&M Bypass] UUID nil, skip.") return end
-
-    print("[F&M Bypass] UUID: " .. tostring(uuid))
-
-    -- 5. StartPulling
-    pcall(function() StartPulling:InvokeServer() end)
-    task.wait(0.1)
-
-    -- 6. Tap sequential (stabil, tidak spam berlebihan)
-    for i = 1, 15 do
-        if not autoFishingRemote then break end
-        pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
-        task.wait(0.05)
-    end
-
-    task.wait(0.3)
-    pcall(function() StopFishing:InvokeServer() end)
-    print("[F&M Bypass] Cycle done.")
-end
-
--- Remote Bypass Loop (delay wajar)
-task.spawn(function()
-    while true do
-        task.wait(1)
-        if autoFishingRemote then
-            local ok, err = pcall(runRemoteFishingCycle)
-            if not ok then
-                warn("[F&M Bypass Error]: " .. tostring(err))
-                task.wait(2)
-            end
-        end
-    end
-end)
 
 ----------------------------------------------------
 -- BLATANT FISHING (Max Speed, Terpisah)
@@ -1139,7 +1031,7 @@ end)
 task.spawn(function()
     while true do
         task.wait(0.05) -- Cek setiap 50ms
-        if autoBlatantFishing or autoBlatantFishingV2 or autoFishingRemote or autoCatchAssist then
+        if autoBlatantFishing or autoBlatantFishingV2 or autoCatchAssist then
             dismissCaughtBanner()
         end
     end
@@ -1147,8 +1039,7 @@ end)
 
 
 
--- Auto Catch Assist Loop Thread
--- Dipakai dengan AFK mode game - jangan jalankan bersama Blatant Mode!
+-- Auto Catch Assist Loop Thread (Instant Catch)
 local lastAssistId = nil
 local cachedAssistPullInput = nil
 task.spawn(function()
@@ -1163,17 +1054,24 @@ task.spawn(function()
                 lastAssistId = castId
                 print("[F&M Assist] Bite! UUID: " .. tostring(castId))
                 if cachedAssistPullInput then
-                    -- "begin" dulu (sesuai urutan game asli)
+                    -- "begin" dulu
                     pcall(function() cachedAssistPullInput:InvokeServer(castId, "begin") end)
-                    task.wait(0.05)
+                    task.wait(0.01)
                     
-                    -- Spam 12 "tap" input secara sekuensial dengan delay 15ms
-                    for i = 1, 12 do
+                    -- Spam 16 ketukan dengan jeda 10ms (Sangat instan!)
+                    for i = 1, 16 do
                         if not autoCatchAssist then break end
                         pcall(function() cachedAssistPullInput:InvokeServer(castId, "tap") end)
-                        task.wait(0.015)
+                        task.wait(0.01)
                     end
-                    print("[F&M Assist] Taps sent!")
+                    
+                    -- Langsung klaim dengan stop
+                    local StopFishing = findKnitRemote("FishingReplicationService", "StopFishing")
+                    if StopFishing then
+                        pcall(function() StopFishing:InvokeServer() end)
+                    end
+                    
+                    print("[F&M Assist] Instant Catch Completed!")
                 end
             end
         else
