@@ -1029,12 +1029,12 @@ local function runBlatantFishingV2Cycle()
 
     -- 1. Throw Floater
     pcall(function() ThrowFloater:InvokeServer(origin, target, activeRodName, activeFloaterName, floatConfig, 2.5) end)
-    task.wait(0.12)
+    task.wait(0.25) -- Jeda lempar pancing yang aman (terbukti work di v1)
     if not autoBlatantFishingV2 then disconnectAll() return false end
 
     -- 2. Confirm Cast
     pcall(function() ConfirmFloatingCast:InvokeServer(target) end)
-    task.wait(0.04)
+    task.wait(0.10) -- Jeda konfirmasi yang aman
     if not autoBlatantFishingV2 then disconnectAll() return false end
 
     -- 3. Request Fish Bite
@@ -1051,7 +1051,7 @@ local function runBlatantFishingV2Cycle()
     -- Fallback UUID check
     if not uuid then
         local w = 0
-        while w < 0.8 do
+        while w < 1.0 do
             if not autoBlatantFishingV2 then disconnectAll() return false end
             local castId = LP:GetAttribute("FishingCastId")
             if castId and castId ~= "" and castId ~= oldCastId then
@@ -1071,23 +1071,22 @@ local function runBlatantFishingV2Cycle()
 
     -- 4. Start Pulling
     pcall(function() StartPulling:InvokeServer() end)
-    task.wait(0.01)
+    task.wait(0.02)
 
     -- 5. Begin Pull Input
     pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
-    task.wait(0.01)
+    task.wait(0.02)
 
-    -- 6. Instant Parallel Tap Spam (No Wait! Fired simultaneously)
+    -- 6. Sequential Fast Tapping (20ms delay - 3x lebih cepat dari v1 tapi tetap terdaftar di server)
     for i = 1, 16 do
-        task.spawn(function()
-            pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
-        end)
+        if not autoBlatantFishingV2 or caughtFishName then break end
+        pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
+        task.wait(0.02)
     end
-    task.wait(0.08) -- allow server to process the parallel taps
 
     -- 7. Wait briefly for server confirmation event to log success
     local wt = 0
-    while wt < 0.8 and not caughtFishName do
+    while wt < 1.5 and not caughtFishName do
         if not autoBlatantFishingV2 then break end
         task.wait(0.02)
         wt = wt + 0.02
@@ -1097,14 +1096,14 @@ local function runBlatantFishingV2Cycle()
 
     -- 8. Claim & End Session
     pcall(function() StopFishing:InvokeServer() end)
-    task.wait(0.02)
+    task.wait(0.05)
 
     if caughtFishName then
         print("[F&M Blatant v2] Successfully caught: " .. tostring(caughtFishName))
         return true
     else
-        print("[F&M Blatant v2] Fired all inputs, session stopped.")
-        return true
+        warn("[F&M Blatant v2] Failed to catch fish (Bite timeout). Resetting...")
+        return false
     end
 end
 
