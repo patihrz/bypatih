@@ -2288,6 +2288,25 @@ TabDeveloper:CreateInput({
 })
 
 TabDeveloper:CreateButton({
+    Name = "Equip Single Pet (UUID)",
+    Callback = function()
+        local Knit = getKnitClient()
+        if not Knit then return end
+        local PetService = Knit.GetService and Knit.GetService("PetService") or Knit.Services and Knit.Services.PetService
+        if not PetService then return end
+        
+        local ok, err = pcall(function()
+            return PetService:EquipPet(exploitPetUUID)
+        end)
+        if ok then
+            Rayfield:Notify({Title = "Equipped Single", Content = "EquipPet sent: " .. exploitPetUUID, Duration = 3})
+        else
+            Rayfield:Notify({Title = "Error", Content = tostring(err), Duration = 3})
+        end
+    end
+})
+
+TabDeveloper:CreateButton({
     Name = "Equip Pet 10x (Spam Exploit)",
     Callback = function()
         local Knit = getKnitClient()
