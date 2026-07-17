@@ -2120,20 +2120,56 @@ TabDeveloper:CreateInput({
 })
 
 TabDeveloper:CreateButton({
-    Name = "Decompile Range of FishingController (Auto Clipboard)",
+    Name = "Decompile Range of Target Script (Auto Clipboard)",
     Callback = function()
-        local outputText = string.format("=== FISHINGCONTROLLER DECOMPILE L%d - L%d ===\n", decompileStart, decompileEnd)
+        local targetName = devSearchText ~= "" and devSearchText or "FishingController"
+        
+        local obj = nil
+        local searchFolders = {
+            LP:WaitForChild("PlayerScripts"),
+            game:GetService("ReplicatedStorage")
+        }
+        
+        for _, folder in ipairs(searchFolders) do
+            for _, child in ipairs(folder:GetDescendants()) do
+                if (child:IsA("ModuleScript") or child:IsA("LocalScript")) and child.Name:lower() == targetName:lower() then
+                    obj = child
+                    break
+                end
+            end
+            if obj then break end
+        end
+        
+        if not obj then
+            for _, folder in ipairs(searchFolders) do
+                for _, child in ipairs(folder:GetDescendants()) do
+                    if (child:IsA("ModuleScript") or child:IsA("LocalScript")) and child.Name:lower():find(targetName:lower()) then
+                        obj = child
+                        break
+                    end
+                end
+                if obj then break end
+            end
+        end
+        
+        if not obj then
+            Rayfield:Notify({Title = "Not Found", Content = "Script '" .. targetName .. "' not found!", Duration = 3})
+            return
+        end
+        
+        local outputText = string.format("=== %s DECOMPILE L%d - L%d ===\n", obj.Name, decompileStart, decompileEnd)
         local function log(str)
             print(str)
             outputText = outputText .. str .. "\n"
         end
         
-        local obj = LP.PlayerScripts.Controllers.FishingController
         local ok, code = pcall(decompile, obj)
         if ok and type(code) == "string" and code ~= "" then
             local lines = string.split(code, "\n")
             for idx = decompileStart, math.min(decompileEnd, #lines) do
-                log(string.format("L%d: %s", idx, lines[idx]))
+                if lines[idx] then
+                    log(string.format("L%d: %s", idx, lines[idx]))
+                end
             end
         else
             log("Decompilation failed: " .. tostring(code))
@@ -2150,10 +2186,10 @@ TabDeveloper:CreateButton({
             Rayfield:Notify({Title = "Copied to Clipboard!", Content = "Line range copied! Paste it in chat.", Duration = 5})
         else
             local fileSuccess = pcall(function()
-                writefile("fishing_decompile_range.txt", outputText)
+                writefile("script_decompile_range.txt", outputText)
             end)
             if fileSuccess then
-                Rayfield:Notify({Title = "Saved to File!", Content = "Saved as 'fishing_decompile_range.txt' in executor workspace.", Duration = 5})
+                Rayfield:Notify({Title = "Saved to File!", Content = "Saved as 'script_decompile_range.txt' in executor workspace.", Duration = 5})
             else
                 Rayfield:Notify({Title = "Decompile Done", Content = "Finished! Check F9 Console.", Duration = 5})
             end
