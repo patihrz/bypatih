@@ -2274,6 +2274,62 @@ TabDeveloper:CreateButton({
     end
 })
 
+local exploitPetUUID = "Cave Bat_605472_Legendary_1_0"
+
+TabDeveloper:CreateSection("Pet Multi-Equip Exploit")
+
+TabDeveloper:CreateInput({
+    Name = "Exploit Pet UUID",
+    PlaceholderText = "Cave Bat_605472_Legendary_1_0",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        exploitPetUUID = Text
+    end
+})
+
+TabDeveloper:CreateButton({
+    Name = "Equip Pet 10x (Spam Exploit)",
+    Callback = function()
+        local Knit = getKnitClient()
+        if not Knit then
+            Rayfield:Notify({Title = "Error", Content = "Knit client not found!", Duration = 3})
+            return
+        end
+        local PetService = Knit.GetService and Knit:GetService("PetService") or Knit.Services and Knit.Services.PetService
+        if not PetService then
+            Rayfield:Notify({Title = "Error", Content = "PetService not found!", Duration = 3})
+            return
+        end
+        
+        Rayfield:Notify({Title = "Running Exploit", Content = "Spamming EquipPet for: " .. exploitPetUUID, Duration = 3})
+        for i = 1, 10 do
+            task.spawn(function()
+                local ok, err = pcall(function()
+                    return PetService:EquipPet(exploitPetUUID)
+                end)
+                if not ok then
+                    warn("EquipPet fail:", tostring(err))
+                end
+            end)
+        end
+    end
+})
+
+TabDeveloper:CreateButton({
+    Name = "Unequip Pet (Clean)",
+    Callback = function()
+        local Knit = getKnitClient()
+        if not Knit then return end
+        local PetService = Knit.GetService and Knit:GetService("PetService") or Knit.Services and Knit.Services.PetService
+        if not PetService then return end
+        
+        pcall(function()
+            PetService:UnequipPet(exploitPetUUID)
+        end)
+        Rayfield:Notify({Title = "Unequipped", Content = "Sent UnequipPet command.", Duration = 3})
+    end
+})
+
 TabDeveloper:CreateButton({
     Name = "Scan PetService & Inventory (Auto Clipboard)",
     Callback = function()
