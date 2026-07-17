@@ -1958,6 +1958,25 @@ TabDeveloper:CreateButton({
 })
 
 TabDeveloper:CreateButton({
+    Name = "List All Client Scripts (F9 Console)",
+    Callback = function()
+        print("=== ALL CLIENT SCRIPTS ===")
+        local found = 0
+        for _, obj in ipairs(game:GetDescendants()) do
+            if obj:IsA("LocalScript") or obj:IsA("ModuleScript") then
+                local path = obj:GetFullName()
+                if not path:find("CoreGui") and not path:find("Chat") and not path:find("Animate") and not path:find("Freecam") then
+                    found = found + 1
+                    print(string.format("[%d] %s (%s)", found, path, obj.ClassName))
+                end
+            end
+        end
+        print("=== SCAN COMPLETE (Found " .. found .. " scripts) ===")
+        Rayfield:Notify({Title = "Scan Complete", Content = "Printed " .. found .. " script paths in console!", Duration = 3})
+    end
+})
+
+TabDeveloper:CreateButton({
     Name = "[DEBUG] Scan Inventory & Client State (Console)",
     Callback = function()
         print("=== INVENTORY & CLIENT STATE SCAN ===")
