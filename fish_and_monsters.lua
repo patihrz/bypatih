@@ -2198,72 +2198,29 @@ TabDeveloper:CreateButton({
 })
 
 TabDeveloper:CreateButton({
-    Name = "Scan for EquipPet in Game (Auto Clipboard)",
+    Name = "List All Controller Names (F9/Clipboard)",
     Callback = function()
-        local outputText = "=== SEARCH FOR EQUIPPET ===\n"
-        local function log(str)
-            print(str)
-            outputText = outputText .. str .. "\n"
-        end
-        
-        local found = 0
-        local searchFolders = {}
-        
-        local ok1, folder1 = pcall(function() return LP:WaitForChild("PlayerScripts"):WaitForChild("Controllers") end)
-        if ok1 and folder1 then table.insert(searchFolders, folder1) end
-        
-        local ok2, folder2 = pcall(function() return LP:WaitForChild("PlayerScripts"):WaitForChild("Client", 2) end)
-        if ok2 and folder2 then table.insert(searchFolders, folder2) end
-        
-        if #searchFolders == 0 then
-            local ok3, folder3 = pcall(function() return LP:WaitForChild("PlayerScripts") end)
-            if ok3 and folder3 then table.insert(searchFolders, folder3) end
-        end
-        
-        log("Searching in " .. #searchFolders .. " folders...")
-        for _, folder in ipairs(searchFolders) do
-            for _, obj in ipairs(folder:GetDescendants()) do
-                if obj:IsA("ModuleScript") or obj:IsA("LocalScript") then
-                    local path = obj:GetFullName()
-                    if not path:find("CoreGui") and not path:find("Chat") and not path:find("Animate") and not path:find("Freecam") then
-                        local ok, code = pcall(function()
-                            return decompile(obj)
-                        end)
-                        if ok and type(code) == "string" and code ~= "" then
-                            if code:find("EquipPet") or code:find("UnequipPet") then
-                                found = found + 1
-                                log(string.format("[%d] Found in: %s (%s)", found, path, obj.ClassName))
-                                local lines = string.split(code, "\n")
-                                for idx, line in ipairs(lines) do
-                                    if line:find("EquipPet") or line:find("UnequipPet") then
-                                        log(string.format("  L%d: %s", idx, line:gsub("^%s+", "")))
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
+        local output = "=== KNIT CONTROLLERS ===\n"
+        local ok, folder = pcall(function() return LP:WaitForChild("PlayerScripts"):WaitForChild("Controllers") end)
+        if ok and folder then
+            for _, child in ipairs(folder:GetChildren()) do
+                output = output .. child.Name .. " (" .. child.ClassName .. ")\n"
             end
+        else
+            output = output .. "Controllers folder not found!\n"
         end
-        log("=== SEARCH COMPLETE (Found " .. found .. " matching files) ===")
         
         local clipSuccess = pcall(function()
-            if setclipboard then setclipboard(outputText)
-            elseif toclipboard then toclipboard(outputText)
+            if setclipboard then setclipboard(output)
+            elseif toclipboard then toclipboard(output)
             else error("No clipboard") end
         end)
         
         if clipSuccess then
-            Rayfield:Notify({Title = "Copied!", Content = "Scan results copied!", Duration = 5})
+            Rayfield:Notify({Title = "Copied!", Content = "Controller list copied!", Duration = 5})
         else
-            local fileSuccess = pcall(function()
-                writefile("equippet_search.txt", outputText)
-            end)
-            if fileSuccess then
-                Rayfield:Notify({Title = "Saved to File!", Content = "Saved as 'equippet_search.txt' in workspace.", Duration = 5})
-            else
-                Rayfield:Notify({Title = "Search Done", Content = "Finished! Check F9 Console.", Duration = 5})
-            end
+            print(output)
+            Rayfield:Notify({Title = "Done", Content = "Printed names in F9 console.", Duration = 5})
         end
     end
 })
