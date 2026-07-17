@@ -991,6 +991,7 @@ local function runBlatantFishingV2Cycle()
     local oldCastId = LP:GetAttribute("FishingCastId") or ""
 
     local caughtFishName = nil
+    local serverReadyForPull = false
     local connections = {}
 
     local function disconnectAll()
@@ -1024,6 +1025,12 @@ local function runBlatantFishingV2Cycle()
                     if n then caughtFishName = n end
                 end
             end
+        end)
+    end
+
+    if FishingPullState and FishingPullState:IsA("RemoteEvent") then
+        connections[#connections+1] = FishingPullState.OnClientEvent:Connect(function(...)
+            serverReadyForPull = true
         end)
     end
 
@@ -1067,6 +1074,14 @@ local function runBlatantFishingV2Cycle()
         disconnectAll()
         pcall(function() StopFishing:InvokeServer() end)
         return false
+    end
+
+    -- Tunggu FishingPullState dari server (max 1s) - tanda server siap untuk StartPulling
+    local wsrv = 0
+    while wsrv < 1 and not serverReadyForPull do
+        if not autoBlatantFishingV2 then disconnectAll() return false end
+        task.wait(0.02)
+        wsrv = wsrv + 0.02
     end
 
     -- 4. Start Pulling
