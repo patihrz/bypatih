@@ -58,6 +58,7 @@ local blatantCycleDelay = 0.5
 local autoCatchAssist = false
 local rodNameInput = "Fishingrod_Losi"
 local floaterNameInput = "Floater_Doll"
+local devSearchText = ""
 
 local autoJoinRaid = false
 local autoTeleportBoss = false
@@ -1910,8 +1911,17 @@ TabDeveloper:CreateButton({
     end
 })
 
+TabDeveloper:CreateInput({
+    Name = "Filter Search Script Name",
+    PlaceholderText = "Type keyword (e.g. Pet, Fishing, Controller)",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        devSearchText = Text
+    end
+})
+
 TabDeveloper:CreateButton({
-    Name = "Decompile Pet & Fishing Controllers (F9 Console)",
+    Name = "Decompile Matching Controllers (Auto Clipboard)",
     Callback = function()
         local outputText = "=== DECOMPILING TARGET CONTROLLERS ===\n"
         local function log(str)
@@ -1919,11 +1929,13 @@ TabDeveloper:CreateButton({
             outputText = outputText .. str .. "\n"
         end
         
-        log("Searching for controllers...")
         local targetNames = {"PetController", "FishingController", "MinigameController", "PetConfig", "FishingConfig", "PetData", "FishingData"}
-        local found = 0
+        if devSearchText ~= "" then
+            table.insert(targetNames, devSearchText)
+        end
         
-        -- Search in PlayerScripts and ReplicatedStorage
+        log("Searching for controllers matching targets or keyword: " .. devSearchText)
+        local found = 0
         local searchFolders = {
             LP:WaitForChild("PlayerScripts"),
             game:GetService("ReplicatedStorage")
@@ -1945,7 +1957,6 @@ TabDeveloper:CreateButton({
                         log(string.format("\n--- [%d] DECOMPILING: %s (%s) ---", found, obj:GetFullName(), obj.ClassName))
                         local ok, code = pcall(decompile, obj)
                         if ok and type(code) == "string" and code ~= "" then
-                            -- Print line-by-line to prevent Roblox console line truncation
                             local lines = string.split(code, "\n")
                             for idx, line in ipairs(lines) do
                                 log(string.format("L%d: %s", idx, line))
@@ -1983,25 +1994,43 @@ TabDeveloper:CreateButton({
 })
 
 TabDeveloper:CreateButton({
-    Name = "List All Client Scripts (F9 Console)",
+    Name = "List Matching Client Scripts (Auto Clipboard)",
     Callback = function()
-        local outputText = "=== ALL CLIENT SCRIPTS ===\n"
+        local outputText = "=== MATCHING CLIENT SCRIPTS ===\n"
+        if devSearchText ~= "" then
+            outputText = outputText .. "Filter Keyword: " .. devSearchText .. "\n"
+        end
+        
         local function log(str)
             print(str)
             outputText = outputText .. str .. "\n"
         end
         
         local found = 0
-        for _, obj in ipairs(game:GetDescendants()) do
-            if obj:IsA("LocalScript") or obj:IsA("ModuleScript") then
-                local path = obj:GetFullName()
-                if not path:find("CoreGui") and not path:find("Chat") and not path:find("Animate") and not path:find("Freecam") then
-                    found = found + 1
-                    log(string.format("[%d] %s (%s)", found, path, obj.ClassName))
+        local searchFolders = {
+            LP:WaitForChild("PlayerScripts"),
+            game:GetService("ReplicatedStorage")
+        }
+        
+        for _, folder in ipairs(searchFolders) do
+            for _, obj in ipairs(folder:GetDescendants()) do
+                if obj:IsA("LocalScript") or obj:IsA("ModuleScript") then
+                    local path = obj:GetFullName()
+                    if not path:find("CoreGui") and not path:find("Chat") and not path:find("Animate") and not path:find("Freecam") then
+                        local show = true
+                        if devSearchText ~= "" then
+                            show = path:lower():find(devSearchText:lower()) ~= nil
+                        end
+                        
+                        if show then
+                            found = found + 1
+                            log(string.format("[%d] %s (%s)", found, path, obj.ClassName))
+                        end
+                    end
                 end
             end
         end
-        log("=== SCAN COMPLETE (Found " .. found .. " scripts) ===")
+        log("=== SCAN COMPLETE (Found " .. found .. " matching scripts) ===")
         
         -- Copy to clipboard or fallback to file write
         local clipSuccess = pcall(function()
