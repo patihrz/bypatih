@@ -2198,6 +2198,29 @@ TabDeveloper:CreateButton({
 })
 
 TabDeveloper:CreateButton({
+    Name = "Decompile PetConfig Table (Auto Clipboard)",
+    Callback = function()
+        local obj = game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("PetConfig")
+        local ok, code = pcall(decompile, obj)
+        if ok and type(code) == "string" and code ~= "" then
+            local clipSuccess = pcall(function()
+                if setclipboard then setclipboard(code)
+                elseif toclipboard then toclipboard(code)
+                else error("No clipboard") end
+            end)
+            if clipSuccess then
+                Rayfield:Notify({Title = "Copied!", Content = "PetConfig table copied to clipboard!", Duration = 5})
+            else
+                writefile("pet_config_decompile.txt", code)
+                Rayfield:Notify({Title = "Saved to File!", Content = "Saved as 'pet_config_decompile.txt' in workspace.", Duration = 5})
+            end
+        else
+            Rayfield:Notify({Title = "Error", Content = "Failed to decompile PetConfig: " .. tostring(code), Duration = 5})
+        end
+    end
+})
+
+TabDeveloper:CreateButton({
     Name = "[DEBUG] Scan Inventory & Client State (Console)",
     Callback = function()
         print("=== INVENTORY & CLIENT STATE SCAN ===")
