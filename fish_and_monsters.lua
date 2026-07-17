@@ -2335,6 +2335,19 @@ TabDeveloper:CreateButton({
 })
 
 TabDeveloper:CreateButton({
+    Name = "Patch Client MaxEquippedPets (to 10)",
+    Callback = function()
+        local ok, config = pcall(require, game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("PetConfig"))
+        if ok and type(config) == "table" then
+            config.MaxEquippedPets = 10
+            Rayfield:Notify({Title = "Patched", Content = "Client MaxEquippedPets set to 10!", Duration = 3})
+        else
+            Rayfield:Notify({Title = "Error", Content = "Failed to require PetConfig: " .. tostring(config), Duration = 3})
+        end
+    end
+})
+
+TabDeveloper:CreateButton({
     Name = "Unequip Pet (Clean)",
     Callback = function()
         local Knit = getKnitClient()
