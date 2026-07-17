@@ -2221,6 +2221,101 @@ TabDeveloper:CreateButton({
 })
 
 TabDeveloper:CreateButton({
+    Name = "Scan PetService & Inventory (Auto Clipboard)",
+    Callback = function()
+        local outputText = "=== PET SERVICE & INVENTORY SCAN ===\n"
+        local function log(str)
+            print(str)
+            outputText = outputText .. str .. "\n"
+        end
+        
+        local Knit = getKnitClient()
+        if not Knit then
+            log("Knit framework not found!")
+            return
+        end
+        
+        local PetService = Knit.GetService and Knit:GetService("PetService") or Knit.Services and Knit.Services.PetService
+        if not PetService then
+            log("PetService not found in Knit!")
+            return
+        end
+        
+        log("PetService keys:")
+        for k, v in pairs(PetService) do
+            log(string.format("  %s (%s)", k, type(v)))
+            if type(v) == "table" then
+                for k2, v2 in pairs(v) do
+                    log(string.format("    SubKey: %s (%s)", k2, type(v2)))
+                end
+            end
+        end
+        
+        -- Try to fetch inventory
+        local possibleMethods = {"GetPetData", "GetPets", "GetOwnedPets", "GetInventory", "GetMyPets", "GetPlayerData"}
+        local foundData = false
+        for _, method in ipairs(possibleMethods) do
+            if PetService[method] then
+                log("Invoking method: " .. method)
+                local ok, res = pcall(function() return PetService[method](PetService) end)
+                if ok then
+                    log("Method " .. method .. " returned type: " .. type(res))
+                    if type(res) == "table" then
+                        foundData = true
+                        for k, v in pairs(res) do
+                            log(string.format("  [%s] = %s (%s)", tostring(k), tostring(v), type(v)))
+                            if type(v) == "table" then
+                                for k2, v2 in pairs(v) do
+                                    log(string.format("    %s = %s (%s)", tostring(k2), tostring(v2), type(v2)))
+                                    if type(v2) == "table" then
+                                        for k3, v3 in pairs(v2) do
+                                            log(string.format("      %s = %s", tostring(k3), tostring(v3)))
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                else
+                    log("Method " .. method .. " call failed: " .. tostring(res))
+                end
+            end
+        end
+        
+        if not foundData then
+            log("Could not retrieve pet inventory automatically using Knit methods.")
+            -- Check replicated storage player folders
+            local lpData = game:GetService("ReplicatedStorage"):FindFirstChild("PlayerData")
+            if lpData then
+                local myFolder = lpData:FindFirstChild(LP.Name)
+                if myFolder then
+                    log("Found PlayerData folder for player in ReplicatedStorage: " .. myFolder:GetFullName())
+                    for _, child in ipairs(myFolder:GetDescendants()) do
+                        if child:IsA("ValueObject") or child:IsA("Configuration") then
+                            log(string.format("  %s = %s (%s)", child:GetFullName(), tostring(child.Value), child.ClassName))
+                        end
+                    end
+                end
+            end
+        end
+        
+        -- Copy to clipboard
+        local clipSuccess = pcall(function()
+            if setclipboard then setclipboard(outputText)
+            elseif toclipboard then toclipboard(outputText)
+            else error("No clipboard") end
+        end)
+        
+        if clipSuccess then
+            Rayfield:Notify({Title = "Copied!", Content = "PetService scan results copied to clipboard!", Duration = 5})
+        else
+            writefile("pet_service_scan.txt", outputText)
+            Rayfield:Notify({Title = "Saved to File!", Content = "Saved as 'pet_service_scan.txt' in workspace.", Duration = 5})
+        end
+    end
+})
+
+TabDeveloper:CreateButton({
     Name = "[DEBUG] Scan Inventory & Client State (Console)",
     Callback = function()
         print("=== INVENTORY & CLIENT STATE SCAN ===")
