@@ -2198,6 +2198,57 @@ TabDeveloper:CreateButton({
 })
 
 TabDeveloper:CreateButton({
+    Name = "Scan for EquipPet in Game (Auto Clipboard)",
+    Callback = function()
+        local outputText = "=== SEARCH FOR EQUIPPET ===\n"
+        local function log(str)
+            print(str)
+            outputText = outputText .. str .. "\n"
+        end
+        
+        local found = 0
+        local searchFolders = {
+            LP:WaitForChild("PlayerScripts"),
+            game:GetService("ReplicatedStorage")
+        }
+        
+        for _, folder in ipairs(searchFolders) do
+            for _, obj in ipairs(folder:GetDescendants()) do
+                if obj:IsA("ModuleScript") or obj:IsA("LocalScript") then
+                    local ok, code = pcall(decompile, obj)
+                    if ok and type(code) == "string" and code ~= "" then
+                        if code:find("EquipPet") or code:find("UnequipPet") then
+                            found = found + 1
+                            log(string.format("[%d] Found in: %s (%s)", found, obj:GetFullName(), obj.ClassName))
+                            local lines = string.split(code, "\n")
+                            for idx, line in ipairs(lines) do
+                                if line:find("EquipPet") or line:find("UnequipPet") then
+                                    log(string.format("  L%d: %s", idx, line:gsub("^%s+", "")))
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        log("=== SEARCH COMPLETE (Found " .. found .. " matching files) ===")
+        
+        local clipSuccess = pcall(function()
+            if setclipboard then setclipboard(outputText)
+            elseif toclipboard then toclipboard(outputText)
+            else error("No clipboard") end
+        end)
+        
+        if clipSuccess then
+            Rayfield:Notify({Title = "Copied!", Content = "Scan results copied!", Duration = 5})
+        else
+            writefile("equippet_search.txt", outputText)
+            Rayfield:Notify({Title = "Saved to File!", Content = "Saved as 'equippet_search.txt' in workspace.", Duration = 5})
+        end
+    end
+})
+
+TabDeveloper:CreateButton({
     Name = "Decompile PetConfig Table (Auto Clipboard)",
     Callback = function()
         local obj = game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("PetConfig")
