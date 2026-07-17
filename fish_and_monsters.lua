@@ -1869,6 +1869,81 @@ TabDeveloper:CreateButton({
 })
 
 TabDeveloper:CreateButton({
+    Name = "Exploit Pet Stats (Force 100% Client Chance)",
+    Callback = function()
+        print("=== EXPLOITING PET STATS ===")
+        local modifiedCount = 0
+        for _, obj in ipairs(game:GetDescendants()) do
+            if obj:IsA("ModuleScript") then
+                local nameLower = obj.Name:lower()
+                if nameLower:find("pet") or nameLower:find("kelelawar") or nameLower:find("bat") or nameLower:find("config") or nameLower:find("data") then
+                    local ok, result = pcall(require, obj)
+                    if ok and type(result) == "table" then
+                        -- Scan for chance/rate/peluang/instant keys and overwrite
+                        local function scanAndModify(tbl, path)
+                            for k, v in pairs(tbl) do
+                                local kStr = tostring(k)
+                                local kLower = kStr:lower()
+                                if type(v) == "table" then
+                                    scanAndModify(v, path .. "." .. kStr)
+                                elseif type(v) == "number" then
+                                    if kLower:find("chance") or kLower:find("rate") or kLower:find("prob") or kLower:find("peluang") or kLower:find("instant") then
+                                        local oldVal = v
+                                        if v > 1 then
+                                            tbl[k] = 100
+                                        else
+                                            tbl[k] = 1.0
+                                        end
+                                        modifiedCount = modifiedCount + 1
+                                        print(string.format("  [MODIFIED] %s.%s: %s -> %s", path, kStr, tostring(oldVal), tostring(tbl[k])))
+                                    end
+                                end
+                            end
+                        end
+                        scanAndModify(result, obj.Name)
+                    end
+                end
+            end
+        end
+        print("=== EXPLOIT COMPLETE (Modified " .. modifiedCount .. " keys) ===")
+        Rayfield:Notify({Title = "Pet Exploit", Content = "Exploited " .. modifiedCount .. " pet/config keys! Check console.", Duration = 4})
+    end
+})
+
+TabDeveloper:CreateButton({
+    Name = "Decompile Pet Scripts (Find Exploit Path)",
+    Callback = function()
+        print("=== SCANNING & DECOMPILING PET SCRIPTS ===")
+        local count = 0
+        for _, obj in ipairs(game:GetDescendants()) do
+            if obj:IsA("LocalScript") or obj:IsA("ModuleScript") then
+                local path = obj:GetFullName()
+                -- Filter path yang tidak penting
+                if not path:find("CoreGui") and not path:find("Chat") and not path:find("Animate") then
+                    local ok, code = pcall(decompile, obj)
+                    if ok and type(code) == "string" and code ~= "" then
+                        local codeLower = code:lower()
+                        if codeLower:find("kelelawar") or codeLower:find("bat") or codeLower:find("peluang") or codeLower:find("instant") then
+                            count = count + 1
+                            print(string.format("[%d] Script Path: %s", count, path))
+                            local lines = string.split(code, "\n")
+                            for idx, line in ipairs(lines) do
+                                local lineLower = line:lower()
+                                if lineLower:find("kelelawar") or lineLower:find("bat") or lineLower:find("peluang") or lineLower:find("instant") then
+                                    print(string.format("    Line %d: %s", idx, line:gsub("^%s+", "")))
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        print("=== DECOMPILE COMPLETE (Found " .. count .. " matching scripts) ===")
+        Rayfield:Notify({Title = "Decompile Done", Content = "Found " .. count .. " pet-related scripts. Check console!", Duration = 4})
+    end
+})
+
+TabDeveloper:CreateButton({
     Name = "[DEBUG] Scan Inventory & Client State (Console)",
     Callback = function()
         print("=== INVENTORY & CLIENT STATE SCAN ===")
