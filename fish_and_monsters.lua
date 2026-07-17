@@ -59,6 +59,7 @@ local autoCatchAssist = false
 local rodNameInput = "Fishingrod_Losi"
 local floaterNameInput = "Floater_Doll"
 local devSearchText = ""
+local hideFishingMinigameUI = false
 
 local autoJoinRaid = false
 local autoTeleportBoss = false
@@ -488,6 +489,15 @@ TabFishing:CreateToggle({
         if value then
             print("[F&M Assist] Enabled. Use with game's AFK mode or fish manually!")
         end
+    end
+})
+
+TabFishing:CreateToggle({
+    Name = "Hide Fishing Minigame UI",
+    CurrentValue = false,
+    Flag = "HideFishingMinigameUI",
+    Callback = function(value)
+        hideFishingMinigameUI = value
     end
 })
 
@@ -1080,6 +1090,21 @@ task.spawn(function()
             if castId and castId ~= "" and castId ~= lastAssistId then
                 lastAssistId = castId
                 print("[F&M Assist] Bite! UUID: " .. tostring(castId))
+                
+                local hiddenGuis = {}
+                if hideFishingMinigameUI then
+                    pcall(function()
+                        for _, gui in ipairs(LP.PlayerGui:GetChildren()) do
+                            if gui:IsA("ScreenGui") and (gui.Name:lower():find("fish") or gui.Name:lower():find("game") or gui.Name:lower():find("pull")) then
+                                if gui.Enabled then
+                                    gui.Enabled = false
+                                    table.insert(hiddenGuis, gui)
+                                end
+                            end
+                        end
+                    end)
+                end
+                
                 if cachedAssistPullInput then
                     -- "begin" dulu
                     pcall(function() cachedAssistPullInput:InvokeServer(castId, "begin") end)
@@ -1099,6 +1124,15 @@ task.spawn(function()
                     end
                     
                     print("[F&M Assist] Instant Catch Completed!")
+                end
+                
+                if #hiddenGuis > 0 then
+                    task.wait(0.5)
+                    pcall(function()
+                        for _, gui in ipairs(hiddenGuis) do
+                            gui.Enabled = true
+                        end
+                    end)
                 end
             end
         else
