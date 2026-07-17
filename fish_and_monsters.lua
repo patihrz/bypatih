@@ -1834,6 +1834,41 @@ TabDeveloper:CreateButton({
 })
 
 TabDeveloper:CreateButton({
+    Name = "Scan Pet Configurations (Console)",
+    Callback = function()
+        print("=== PET CONFIGURATION SCAN ===")
+        local found = 0
+        for _, obj in ipairs(game:GetDescendants()) do
+            if obj:IsA("ModuleScript") and (obj.Name:lower():find("pet") or obj.Name:lower():find("kelelawar") or obj.Name:lower():find("bat")) then
+                found = found + 1
+                print(string.format("[%d] ModuleScript Path: %s", found, obj:GetFullName()))
+                -- Coba require dan print isinya
+                local ok, result = pcall(require, obj)
+                if ok then
+                    print("  Require successful. Type:", typeof(result))
+                    if type(result) == "table" then
+                        for k, v in pairs(result) do
+                            print(string.format("    Key: %s | Value: %s", tostring(k), tostring(v)))
+                            if type(v) == "table" then
+                                for k2, v2 in pairs(v) do
+                                    print(string.format("      SubKey: %s | Value: %s", tostring(k2), tostring(v2)))
+                                end
+                            end
+                        end
+                    else
+                        print("  Value:", tostring(result))
+                    end
+                else
+                    print("  Require failed:", tostring(result))
+                end
+            end
+        end
+        print("=== SCAN COMPLETE (Found " .. found .. " modules) ===")
+        Rayfield:Notify({Title = "Pet Scan", Content = "Found " .. found .. " pet modules. Check console!", Duration = 3})
+    end
+})
+
+TabDeveloper:CreateButton({
     Name = "[DEBUG] Scan Inventory & Client State (Console)",
     Callback = function()
         print("=== INVENTORY & CLIENT STATE SCAN ===")
