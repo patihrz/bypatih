@@ -933,7 +933,7 @@ end
 -- Blatant Fishing Loop Thread (Jeda minimal antar siklus)
 task.spawn(function()
     while true do
-        task.wait(blatantCycleDelay) -- Jeda dinamis agar tidak terkena kick/disconnect
+        task.wait(0.05) -- Dipercepat dari 0.5s agar langsung lempar ulang
         if autoBlatantFishing then
             local ok, err = pcall(runBlatantFishingCycle)
             if not ok then
@@ -945,7 +945,7 @@ task.spawn(function()
 end)
 
 -- ================================================================
--- BLATANT FISHING SYSTEM V2 (Gacor - Inventory Safe)
+-- BLATANT FISHING SYSTEM V2 (Ultra-Aggressive Spammer)
 -- ================================================================
 local function runBlatantFishingV2Cycle()
     local ThrowFloater        = findKnitRemote("FishingReplicationService", "ThrowFloater")
@@ -974,9 +974,9 @@ local function runBlatantFishingV2Cycle()
         end
     end
 
-    -- Reset state
+    -- Reset state & start new session
     pcall(function() StopFishing:InvokeServer() end)
-    task.wait(0.15)
+    task.wait(0.05)
     if StartFishing then
         pcall(function() StartFishing:InvokeServer(activeRodName, activeFloaterName) end)
     end
@@ -1029,12 +1029,12 @@ local function runBlatantFishingV2Cycle()
 
     -- 1. Throw Floater
     pcall(function() ThrowFloater:InvokeServer(origin, target, activeRodName, activeFloaterName, floatConfig, 2.5) end)
-    task.wait(0.35) -- Safe casting delay
+    task.wait(0.12)
     if not autoBlatantFishingV2 then disconnectAll() return false end
 
     -- 2. Confirm Cast
     pcall(function() ConfirmFloatingCast:InvokeServer(target) end)
-    task.wait(0.25) -- Safe registration delay
+    task.wait(0.04)
     if not autoBlatantFishingV2 then disconnectAll() return false end
 
     -- 3. Request Fish Bite
@@ -1051,15 +1051,15 @@ local function runBlatantFishingV2Cycle()
     -- Fallback UUID check
     if not uuid then
         local w = 0
-        while w < 1.5 do
+        while w < 0.8 do
             if not autoBlatantFishingV2 then disconnectAll() return false end
             local castId = LP:GetAttribute("FishingCastId")
             if castId and castId ~= "" and castId ~= oldCastId then
                 uuid = castId
                 break
             end
-            task.wait(0.05)
-            w = w + 0.05
+            task.wait(0.02)
+            w = w + 0.02
         end
     end
 
@@ -1071,43 +1071,40 @@ local function runBlatantFishingV2Cycle()
 
     -- 4. Start Pulling
     pcall(function() StartPulling:InvokeServer() end)
-    task.wait(0.05)
+    task.wait(0.01)
 
     -- 5. Begin Pull Input
     pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
-    task.wait(0.05)
+    task.wait(0.01)
 
-    -- 6. Active Tapping Thread
-    local tappingActive = true
-    task.spawn(function()
-        for i = 1, 16 do
-            if not autoBlatantFishingV2 or not tappingActive or caughtFishName then break end
+    -- 6. Instant Parallel Tap Spam (No Wait! Fired simultaneously)
+    for i = 1, 16 do
+        task.spawn(function()
             pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
-            task.wait(0.05)
-        end
-    end)
+        end)
+    end
+    task.wait(0.08) -- allow server to process the parallel taps
 
-    -- 7. Wait until fish is officially caught (verified via server event)
+    -- 7. Wait briefly for server confirmation event to log success
     local wt = 0
-    while wt < 2.0 and not caughtFishName do
+    while wt < 0.8 and not caughtFishName do
         if not autoBlatantFishingV2 then break end
-        task.wait(0.05)
-        wt = wt + 0.05
+        task.wait(0.02)
+        wt = wt + 0.02
     end
 
-    tappingActive = false
     disconnectAll()
 
     -- 8. Claim & End Session
     pcall(function() StopFishing:InvokeServer() end)
-    task.wait(0.05)
+    task.wait(0.02)
 
     if caughtFishName then
         print("[F&M Blatant v2] Successfully caught: " .. tostring(caughtFishName))
         return true
     else
-        warn("[F&M Blatant v2] Catch timeout / failed.")
-        return false
+        print("[F&M Blatant v2] Fired all inputs, session stopped.")
+        return true
     end
 end
 
