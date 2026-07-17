@@ -1911,35 +1911,49 @@ TabDeveloper:CreateButton({
 })
 
 TabDeveloper:CreateButton({
-    Name = "Decompile Pet Scripts (Find Exploit Path)",
+    Name = "Decompile Pet & Fishing Controllers (F9 Console)",
     Callback = function()
-        print("=== SCANNING & DECOMPILING PET SCRIPTS ===")
-        local count = 0
-        for _, obj in ipairs(game:GetDescendants()) do
-            if obj:IsA("LocalScript") or obj:IsA("ModuleScript") then
-                local path = obj:GetFullName()
-                -- Filter path yang tidak penting
-                if not path:find("CoreGui") and not path:find("Chat") and not path:find("Animate") then
-                    local ok, code = pcall(decompile, obj)
-                    if ok and type(code) == "string" and code ~= "" then
-                        local codeLower = code:lower()
-                        if codeLower:find("kelelawar") or codeLower:find("bat") or codeLower:find("peluang") or codeLower:find("instant") then
-                            count = count + 1
-                            print(string.format("[%d] Script Path: %s", count, path))
+        print("=== DECOMPILING TARGET CONTROLLERS ===")
+        local targetNames = {"PetController", "FishingController", "MinigameController", "PetConfig", "FishingConfig", "PetData", "FishingData"}
+        local found = 0
+        
+        -- Search in PlayerScripts and ReplicatedStorage
+        local searchFolders = {
+            LP:WaitForChild("PlayerScripts"),
+            game:GetService("ReplicatedStorage")
+        }
+        
+        for _, folder in ipairs(searchFolders) do
+            for _, obj in ipairs(folder:GetDescendants()) do
+                if obj:IsA("ModuleScript") or obj:IsA("LocalScript") then
+                    local matched = false
+                    for _, target in ipairs(targetNames) do
+                        if obj.Name:lower():find(target:lower()) then
+                            matched = true
+                            break
+                        end
+                    end
+                    
+                    if matched then
+                        found = found + 1
+                        print(string.format("\n--- [%d] DECOMPILING: %s (%s) ---", found, obj:GetFullName(), obj.ClassName))
+                        local ok, code = pcall(decompile, obj)
+                        if ok and type(code) == "string" and code ~= "" then
+                            -- Print line-by-line to prevent Roblox console line truncation
                             local lines = string.split(code, "\n")
                             for idx, line in ipairs(lines) do
-                                local lineLower = line:lower()
-                                if lineLower:find("kelelawar") or lineLower:find("bat") or lineLower:find("peluang") or lineLower:find("instant") then
-                                    print(string.format("    Line %d: %s", idx, line:gsub("^%s+", "")))
-                                end
+                                print(string.format("L%d: %s", idx, line))
                             end
+                            print("------------------------------------------")
+                        else
+                            print("Decompilation failed / returned nil: " .. tostring(code))
                         end
                     end
                 end
             end
         end
-        print("=== DECOMPILE COMPLETE (Found " .. count .. " matching scripts) ===")
-        Rayfield:Notify({Title = "Decompile Done", Content = "Found " .. count .. " pet-related scripts. Check console!", Duration = 4})
+        print("=== DECOMPILATION RUN COMPLETE ===")
+        Rayfield:Notify({Title = "Decompile Complete", Content = "Decompiled " .. found .. " targets. Check console!", Duration = 4})
     end
 })
 
