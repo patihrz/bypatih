@@ -2295,7 +2295,7 @@ TabDeveloper:CreateButton({
             Rayfield:Notify({Title = "Error", Content = "Knit client not found!", Duration = 3})
             return
         end
-        local PetService = Knit.GetService and Knit:GetService("PetService") or Knit.Services and Knit.Services.PetService
+        local PetService = Knit.GetService and Knit.GetService("PetService") or Knit.Services and Knit.Services.PetService
         if not PetService then
             Rayfield:Notify({Title = "Error", Content = "PetService not found!", Duration = 3})
             return
@@ -2320,7 +2320,7 @@ TabDeveloper:CreateButton({
     Callback = function()
         local Knit = getKnitClient()
         if not Knit then return end
-        local PetService = Knit.GetService and Knit:GetService("PetService") or Knit.Services and Knit.Services.PetService
+        local PetService = Knit.GetService and Knit.GetService("PetService") or Knit.Services and Knit.Services.PetService
         if not PetService then return end
         
         pcall(function()
@@ -2345,7 +2345,7 @@ TabDeveloper:CreateButton({
             return
         end
         
-        local PetService = Knit.GetService and Knit:GetService("PetService") or Knit.Services and Knit.Services.PetService
+        local PetService = Knit.GetService and Knit.GetService("PetService") or Knit.Services and Knit.Services.PetService
         if not PetService then
             log("PetService not found in Knit!")
             return
