@@ -54,6 +54,7 @@ local tapDelay = 0.05
 -- Remote Farming States
 local autoFishingRemote = false
 local autoBlatantFishing = false
+local autoBlatantFishingV2 = false
 local blatantCycleDelay = 0.5
 local autoCatchAssist = false
 local rodNameInput = "Fishingrod_Losi"
@@ -502,8 +503,25 @@ TabFishing:CreateToggle({
         if value then
             -- Matikan mode lain agar tidak tabrakan
             autoFishingRemote = false
-            print("[F&M Blatant] ENABLED - Mode blatant aktif, bypass dimatikan otomatis.")
-            Rayfield:Notify({Title = "Blatant Mode ON", Content = "Spam fishing max speed aktif!", Duration = 3})
+            autoBlatantFishingV2 = false
+            print("[F&M Blatant] ENABLED - Mode blatant v1 aktif.")
+            Rayfield:Notify({Title = "Blatant v1 ON", Content = "Spam fishing max speed aktif!", Duration = 3})
+        end
+    end
+})
+
+TabFishing:CreateToggle({
+    Name = "Blatant Fishing v2 (Gacor - Inventory Safe)",
+    CurrentValue = false,
+    Flag = "AutoBlatantFishingV2",
+    Callback = function(value)
+        autoBlatantFishingV2 = value
+        if value then
+            -- Matikan mode lain agar tidak tabrakan
+            autoFishingRemote = false
+            autoBlatantFishing = false
+            print("[F&M Blatant v2] ENABLED - Mode blatant v2 gacor & aman aktif.")
+            Rayfield:Notify({Title = "Blatant v2 ON", Content = "Blatant v2 gacor & inventory-safe aktif!", Duration = 3})
         end
     end
 })
@@ -926,15 +944,196 @@ task.spawn(function()
     end
 end)
 
+-- ================================================================
+-- BLATANT FISHING SYSTEM V2 (Gacor - Inventory Safe)
+-- ================================================================
+local function runBlatantFishingV2Cycle()
+    local ThrowFloater        = findKnitRemote("FishingReplicationService", "ThrowFloater")
+    local ConfirmFloatingCast = findKnitRemote("FishingReplicationService", "ConfirmFloatingCast")
+    local StartFishing        = findKnitRemote("FishingReplicationService", "StartFishing")
+    local StartPulling        = findKnitRemote("FishingReplicationService", "StartPulling")
+    local StopFishing         = findKnitRemote("FishingReplicationService", "StopFishing")
+    local FishingPullInput    = findKnitRemote("FishingRewardService",      "FishingPullInput")
+    local RequestFishBite     = findKnitRemote("FishingRewardService",      "RequestFishBite")
+    local FishCaught          = findKnitRemote("FishingRewardService",      "FishCaught")
+    local FishingSuccess      = findKnitRemote("FishingRewardService",      "FishingSuccess")
+
+    if not (ThrowFloater and ConfirmFloatingCast and RequestFishBite and StartPulling and StopFishing and FishingPullInput) then
+        warn("[F&M Blatant v2] Missing core remotes!") return false
+    end
+
+    equipRod()
+    local rod = getRod()
+    local activeRodName = rod and rod.Name or rodNameInput
+    
+    local activeFloaterName = floaterNameInput
+    for k, v in pairs(LP:GetAttributes()) do
+        if type(v) == "string" and (k:lower():find("floater") or v:lower():find("floater")) and v ~= "" then
+            activeFloaterName = v
+            break
+        end
+    end
+
+    -- Reset state
+    pcall(function() StopFishing:InvokeServer() end)
+    task.wait(0.15)
+    if StartFishing then
+        pcall(function() StartFishing:InvokeServer(activeRodName, activeFloaterName) end)
+    end
+
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+
+    local origin = hrp.Position
+    local target = getWaterTarget(origin)
+    local floatConfig = {LightInfluence=0, FaceCamera=true, Color=Color3.new(0.94,0.31,1), Transparency=0.02, LightEmission=1, Width=0.24}
+    local oldCastId = LP:GetAttribute("FishingCastId") or ""
+
+    local caughtFishName = nil
+    local connections = {}
+
+    local function disconnectAll()
+        for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
+        connections = {}
+    end
+
+    -- Event listeners for guaranteed catch detection
+    if FishCaught and FishCaught:IsA("RemoteEvent") then
+        connections[#connections+1] = FishCaught.OnClientEvent:Connect(function(...)
+            for _, v in ipairs({...}) do
+                if type(v) == "string" and v ~= "" and not v:match("^%x+-%x+-%x+-%x+-%x+$") then
+                    caughtFishName = v
+                end
+                if type(v) == "table" then
+                    local n = extractFishName(v)
+                    if n then caughtFishName = n end
+                end
+            end
+        end)
+    end
+
+    if FishingSuccess and FishingSuccess:IsA("RemoteEvent") then
+        connections[#connections+1] = FishingSuccess.OnClientEvent:Connect(function(...)
+            for _, v in ipairs({...}) do
+                if type(v) == "string" and v ~= "" and not v:match("^%x+-%x+-%x+-%x+-%x+$") then
+                    caughtFishName = v
+                end
+                if type(v) == "table" then
+                    local n = extractFishName(v)
+                    if n then caughtFishName = n end
+                end
+            end
+        end)
+    end
+
+    -- 1. Throw Floater
+    pcall(function() ThrowFloater:InvokeServer(origin, target, activeRodName, activeFloaterName, floatConfig, 2.5) end)
+    task.wait(0.35) -- Safe casting delay
+    if not autoBlatantFishingV2 then disconnectAll() return false end
+
+    -- 2. Confirm Cast
+    pcall(function() ConfirmFloatingCast:InvokeServer(target) end)
+    task.wait(0.25) -- Safe registration delay
+    if not autoBlatantFishingV2 then disconnectAll() return false end
+
+    -- 3. Request Fish Bite
+    local uuid = nil
+    local biteOk, biteData = pcall(function()
+        return RequestFishBite:InvokeServer(target + Vector3.new(0, 0.1, 0))
+    end)
+    if biteOk and type(biteData) == "table" then
+        uuid = biteData.SessionId or biteData.sessionId or biteData.castId or biteData.CastId or extractUUID(biteData)
+    elseif biteOk and type(biteData) == "string" and biteData ~= "" then
+        uuid = biteData
+    end
+
+    -- Fallback UUID check
+    if not uuid then
+        local w = 0
+        while w < 1.5 do
+            if not autoBlatantFishingV2 then disconnectAll() return false end
+            local castId = LP:GetAttribute("FishingCastId")
+            if castId and castId ~= "" and castId ~= oldCastId then
+                uuid = castId
+                break
+            end
+            task.wait(0.05)
+            w = w + 0.05
+        end
+    end
+
+    if not uuid then
+        disconnectAll()
+        pcall(function() StopFishing:InvokeServer() end)
+        return false
+    end
+
+    -- 4. Start Pulling
+    pcall(function() StartPulling:InvokeServer() end)
+    task.wait(0.05)
+
+    -- 5. Begin Pull Input
+    pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
+    task.wait(0.05)
+
+    -- 6. Active Tapping Thread
+    local tappingActive = true
+    task.spawn(function()
+        for i = 1, 16 do
+            if not autoBlatantFishingV2 or not tappingActive or caughtFishName then break end
+            pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
+            task.wait(0.05)
+        end
+    end)
+
+    -- 7. Wait until fish is officially caught (verified via server event)
+    local wt = 0
+    while wt < 2.0 and not caughtFishName do
+        if not autoBlatantFishingV2 then break end
+        task.wait(0.05)
+        wt = wt + 0.05
+    end
+
+    tappingActive = false
+    disconnectAll()
+
+    -- 8. Claim & End Session
+    pcall(function() StopFishing:InvokeServer() end)
+    task.wait(0.05)
+
+    if caughtFishName then
+        print("[F&M Blatant v2] Successfully caught: " .. tostring(caughtFishName))
+        return true
+    else
+        warn("[F&M Blatant v2] Catch timeout / failed.")
+        return false
+    end
+end
+
+-- Blatant Fishing v2 Loop Thread
+task.spawn(function()
+    while true do
+        task.wait(blatantCycleDelay)
+        if autoBlatantFishingV2 then
+            local ok, success = pcall(runBlatantFishingV2Cycle)
+            if not ok or not success then
+                task.wait(0.5)
+            end
+        end
+    end
+end)
+
 -- Background Auto Clicker untuk Banner Ikan / Keluar (Berjalan terus-menerus real-time)
 task.spawn(function()
     while true do
         task.wait(0.05) -- Cek setiap 50ms
-        if autoBlatantFishing or autoFishingRemote or autoCatchAssist then
+        if autoBlatantFishing or autoBlatantFishingV2 or autoFishingRemote or autoCatchAssist then
             dismissCaughtBanner()
         end
     end
 end)
+
 
 
 -- Auto Catch Assist Loop Thread
