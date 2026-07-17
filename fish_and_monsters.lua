@@ -54,6 +54,7 @@ local tapDelay = 0.05
 -- Remote Farming States
 local autoFishingRemote = false
 local autoBlatantFishing = false
+local blatantCycleDelay = 0.5
 local autoCatchAssist = false
 local rodNameInput = "Fishingrod_Losi"
 local floaterNameInput = "Floater_Doll"
@@ -507,6 +508,17 @@ TabFishing:CreateToggle({
     end
 })
 
+TabFishing:CreateSlider({
+    Name = "Blatant Cycle Delay (AFK Safety)",
+    Range = {0.05, 5},
+    Increment = 0.05,
+    CurrentValue = 0.5,
+    Flag = "BlatantCycleDelay",
+    Callback = function(value)
+        blatantCycleDelay = value
+    end
+})
+
 TabFishing:CreateToggle({
     Name = "Auto Equip Rod",
     CurrentValue = false,
@@ -903,7 +915,7 @@ end
 -- Blatant Fishing Loop Thread (Jeda minimal antar siklus)
 task.spawn(function()
     while true do
-        task.wait(0.05) -- Dipercepat dari 0.5s agar langsung lempar ulang
+        task.wait(blatantCycleDelay) -- Jeda dinamis agar tidak terkena kick/disconnect
         if autoBlatantFishing then
             local ok, err = pcall(runBlatantFishingCycle)
             if not ok then
