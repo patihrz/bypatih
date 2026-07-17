@@ -2207,23 +2207,37 @@ TabDeveloper:CreateButton({
         end
         
         local found = 0
-        local searchFolders = {
-            LP:WaitForChild("PlayerScripts"),
-            game:GetService("ReplicatedStorage")
-        }
+        local searchFolders = {}
         
+        local ok1, folder1 = pcall(function() return LP:WaitForChild("PlayerScripts"):WaitForChild("Controllers") end)
+        if ok1 and folder1 then table.insert(searchFolders, folder1) end
+        
+        local ok2, folder2 = pcall(function() return LP:WaitForChild("PlayerScripts"):WaitForChild("Client", 2) end)
+        if ok2 and folder2 then table.insert(searchFolders, folder2) end
+        
+        if #searchFolders == 0 then
+            local ok3, folder3 = pcall(function() return LP:WaitForChild("PlayerScripts") end)
+            if ok3 and folder3 then table.insert(searchFolders, folder3) end
+        end
+        
+        log("Searching in " .. #searchFolders .. " folders...")
         for _, folder in ipairs(searchFolders) do
             for _, obj in ipairs(folder:GetDescendants()) do
                 if obj:IsA("ModuleScript") or obj:IsA("LocalScript") then
-                    local ok, code = pcall(decompile, obj)
-                    if ok and type(code) == "string" and code ~= "" then
-                        if code:find("EquipPet") or code:find("UnequipPet") then
-                            found = found + 1
-                            log(string.format("[%d] Found in: %s (%s)", found, obj:GetFullName(), obj.ClassName))
-                            local lines = string.split(code, "\n")
-                            for idx, line in ipairs(lines) do
-                                if line:find("EquipPet") or line:find("UnequipPet") then
-                                    log(string.format("  L%d: %s", idx, line:gsub("^%s+", "")))
+                    local path = obj:GetFullName()
+                    if not path:find("CoreGui") and not path:find("Chat") and not path:find("Animate") and not path:find("Freecam") then
+                        local ok, code = pcall(function()
+                            return decompile(obj)
+                        end)
+                        if ok and type(code) == "string" and code ~= "" then
+                            if code:find("EquipPet") or code:find("UnequipPet") then
+                                found = found + 1
+                                log(string.format("[%d] Found in: %s (%s)", found, path, obj.ClassName))
+                                local lines = string.split(code, "\n")
+                                for idx, line in ipairs(lines) do
+                                    if line:find("EquipPet") or line:find("UnequipPet") then
+                                        log(string.format("  L%d: %s", idx, line:gsub("^%s+", "")))
+                                    end
                                 end
                             end
                         end
@@ -2242,8 +2256,14 @@ TabDeveloper:CreateButton({
         if clipSuccess then
             Rayfield:Notify({Title = "Copied!", Content = "Scan results copied!", Duration = 5})
         else
-            writefile("equippet_search.txt", outputText)
-            Rayfield:Notify({Title = "Saved to File!", Content = "Saved as 'equippet_search.txt' in workspace.", Duration = 5})
+            local fileSuccess = pcall(function()
+                writefile("equippet_search.txt", outputText)
+            end)
+            if fileSuccess then
+                Rayfield:Notify({Title = "Saved to File!", Content = "Saved as 'equippet_search.txt' in workspace.", Duration = 5})
+            else
+                Rayfield:Notify({Title = "Search Done", Content = "Finished! Check F9 Console.", Duration = 5})
+            end
         end
     end
 })
