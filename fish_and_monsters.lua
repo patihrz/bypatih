@@ -2839,14 +2839,50 @@ local function getHudTeleportRemote()
     return nil
 end
 
+-- Helper: cari BasePart dari instance (any depth)
+local function findBasePart(inst)
+    if not inst then return nil end
+    if inst:IsA("BasePart") then return inst end
+    -- PrimaryPart hanya ada di Model
+    if inst:IsA("Model") and inst.PrimaryPart then return inst.PrimaryPart end
+    -- GetDescendants untuk cari BasePart paling pertama
+    for _, desc in ipairs(inst:GetDescendants()) do
+        if desc:IsA("BasePart") then return desc end
+    end
+    return nil
+end
+
 -- Fungsi utama teleport ke pulau
 local function teleportToIsland(islandData)
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return false, "Character tidak ditemukan!" end
 
-    -- 1. Coba RequestHudTeleport dari SpawnService dengan locationId EXACT
-    -- Parameter: nama folder di workspace.Location (contoh: "Bamboo", "Iceberg", "Lost Whale Island")
+    -- 1. PRIORITAS: Teleport langsung ke Hangout Model di workspace root
+    -- (CONFIRMED dari scan: BambooHangout, SnowHangout, dll ada di Workspace.*Hangout)
+    if islandData.hangout then
+        local hangoutModel = workspace:FindFirstChild(islandData.hangout)
+        local targetPart = findBasePart(hangoutModel)
+        if targetPart then
+            hrp.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 8, 0))
+            print("[F&M Island] ✅ Teleport via Hangout: " .. islandData.hangout .. " @ " .. tostring(targetPart.Position))
+            return true, "✅ Teleport ke " .. islandData.name
+        end
+    end
+
+    -- 2. Teleport via Island model di workspace.Island folder
+    local islandFolder = workspace:FindFirstChild("Island")
+    if islandFolder and islandData.islandModel then
+        local islandModel = islandFolder:FindFirstChild(islandData.islandModel, true)
+        local targetPart = findBasePart(islandModel)
+        if targetPart then
+            hrp.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 8, 0))
+            print("[F&M Island] ✅ Teleport via Island model: " .. islandData.islandModel)
+            return true, "✅ Teleport ke " .. islandData.name .. " (Island model)"
+        end
+    end
+
+    -- 3. Coba RequestHudTeleport via SpawnService (server-side)
     local hudRemote = getHudTeleportRemote()
     if hudRemote then
         local ok, result = pcall(function()
@@ -2858,57 +2894,23 @@ local function teleportToIsland(islandData)
             end
         end)
         if ok then
-            print("[F&M Island] RequestHudTeleport OK -> " .. islandData.locationId)
+            print("[F&M Island] HudTeleport OK -> " .. islandData.locationId)
             return true, "✅ Teleport via HudTeleport: " .. islandData.name
         else
             warn("[F&M Island] HudTeleport error: " .. tostring(result))
         end
     end
 
-    -- 2. Cari posisi di workspace.Location folder (lokasi spawn island)
+    -- 4. Cari posisi di workspace.Location folder (Folder, bukan BasePart langsung)
     local locFolder = workspace:FindFirstChild("Location")
     if locFolder then
         local locChild = locFolder:FindFirstChild(islandData.locationId)
-        if locChild then
-            local locPart = locChild:IsA("BasePart") and locChild
-                or locChild.PrimaryPart
-                or locChild:FindFirstChildWhichIsA("BasePart")
-            if locPart then
-                hrp.CFrame = CFrame.new(locPart.Position + Vector3.new(0, 8, 0))
-                print("[F&M Island] Teleport via Location folder: " .. islandData.locationId)
-                return true, "✅ Teleport ke " .. islandData.name .. " (via Location folder)"
-            end
-        end
-    end
-
-    -- 3. Cari Island model di workspace.Island
-    local islandFolder = workspace:FindFirstChild("Island")
-    if islandFolder and islandData.islandModel then
-        local islandModel = islandFolder:FindFirstChild(islandData.islandModel, true)
-        if islandModel then
-            local targetPart = islandModel:IsA("BasePart") and islandModel
-                or islandModel.PrimaryPart
-                or islandModel:FindFirstChildWhichIsA("BasePart")
-            if targetPart then
-                hrp.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 8, 0))
-                print("[F&M Island] Teleport via Island model: " .. islandData.islandModel)
-                return true, "✅ Teleport ke " .. islandData.name .. " (via Island model)"
-            end
-        end
-    end
-
-    -- 4. Cari Hangout model di workspace (root level)
-    if islandData.hangout then
-        local hangoutModel = workspace:FindFirstChild(islandData.hangout)
-        if hangoutModel then
-            local targetPart = hangoutModel:IsA("BasePart") and hangoutModel
-                or hangoutModel.PrimaryPart
-                or hangoutModel:FindFirstChildWhichIsA("BasePart")
-            if targetPart then
-                hrp.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 8, 0))
-                print("[F&M Island] Teleport via Hangout: " .. islandData.hangout)
-                return true, "✅ Teleport ke " .. islandData.name .. " (via Hangout)"
-            end
+        -- locChild adalah Folder - cari BasePart di dalamnya
+        local locPart = locChild and findBasePart(locChild)
+        if locPart then
+            hrp.CFrame = CFrame.new(locPart.Position + Vector3.new(0, 8, 0))
+            print("[F&M Island] Teleport via Location folder: " .. islandData.locationId)
+            return true, "✅ Teleport ke " .. islandData.name .. " (Location)"
         end
     end
 
@@ -3083,40 +3085,76 @@ end)
 ----------------------------------------------------
 TabPlayer:CreateSection("Treasure Chest")
 
--- Helper: scan semua attachment CHEST di workspace (semua map)
+-- Helper: scan semua attachment/part CHEST di workspace
 local function findAllChestAttachments()
     local results = {}
-    local function scan(instance)
-        for _, child in ipairs(instance:GetChildren()) do
-            if child:IsA("Attachment") and child.Name:match("^CHEST_") then
-                table.insert(results, child.Name)
+    local seen = {}
+    -- Scan seluruh workspace untuk Attachment dengan nama CHEST_*
+    for _, desc in ipairs(workspace:GetDescendants()) do
+        if desc:IsA("Attachment") and desc.Name:match("^CHEST_") then
+            if not seen[desc.Name] then
+                seen[desc.Name] = true
+                table.insert(results, desc.Name)
             end
-            scan(child)
         end
     end
-    scan(workspace)
     return results
 end
 
--- Helper: dapatkan RequestOpenChest remote
+-- Helper: scan TreasureSpawns untuk semua instance (apapun tipenya)
+local function findChestsInTreasureSpawns()
+    local results = {}
+    local ts = workspace:FindFirstChild("TreasureSpawns")
+    if not ts then return results end
+    for _, islandFolder in ipairs(ts:GetChildren()) do
+        for _, desc in ipairs(islandFolder:GetDescendants()) do
+            -- Terima apapun yang namanya mengandung chest/treasure/item
+            local nm = desc.Name:lower()
+            if nm:find("chest") or nm:find("treasure") or nm:find("item") or nm:find("loot") then
+                table.insert(results, {name = desc.Name, class = desc.ClassName, path = desc:GetFullName()})
+            end
+            -- Atau semua Attachment tanpa filter nama
+            if desc:IsA("Attachment") then
+                table.insert(results, {name = desc.Name, class = desc.ClassName, path = desc:GetFullName()})
+            end
+        end
+    end
+    return results
+end
+
+-- Helper: dapatkan remote chest (scan luas - bukan hanya TreasureService)
 local function getOpenChestRemote()
+    -- 1. Cari di Knit Services
     local pkgs = ReplicatedStorage:FindFirstChild("Packages")
-    if not pkgs then return nil end
-    local idx = pkgs:FindFirstChild("_Index")
-    if not idx then return nil end
-    for _, pkg in ipairs(idx:GetChildren()) do
-        local knit = pkg:FindFirstChild("knit")
-        if knit then
-            local services = knit:FindFirstChild("Services")
+    local idx = pkgs and pkgs:FindFirstChild("_Index")
+    if idx then
+        for _, pkg in ipairs(idx:GetChildren()) do
+            local knit = pkg:FindFirstChild("knit")
+            local services = knit and knit:FindFirstChild("Services")
             if services then
-                local treasureSvc = services:FindFirstChild("TreasureService")
-                if treasureSvc then
-                    local rf = treasureSvc:FindFirstChild("RF")
+                -- Cek TreasureService dan nama service lain yang mungkin
+                for _, svc in ipairs(services:GetChildren()) do
+                    local rf = svc:FindFirstChild("RF")
                     if rf then
-                        local remote = rf:FindFirstChild("RequestOpenChest")
-                        if remote then return remote end
+                        for _, remote in ipairs(rf:GetChildren()) do
+                            local nm = remote.Name:lower()
+                            if nm:find("chest") or nm:find("treasure") or nm:find("open") or nm:find("claim") then
+                                print("[F&M Chest] Found remote: " .. remote:GetFullName())
+                                return remote
+                            end
+                        end
                     end
                 end
+            end
+        end
+    end
+    -- 2. Scan manual seluruh ReplicatedStorage
+    for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+        if (obj:IsA("RemoteFunction") or obj:IsA("RemoteEvent")) then
+            local nm = obj.Name:lower()
+            if nm:find("chest") or nm:find("treasure") or nm:find("openchest") or nm:find("claimchest") then
+                print("[F&M Chest] Found remote (scan): " .. obj:GetFullName())
+                return obj
             end
         end
     end
@@ -3274,33 +3312,58 @@ TabPlayer:CreateButton({
 })
 
 TabPlayer:CreateButton({
-    Name = "Scan Chest Count (Debug)",
+    Name = "[DEBUG] Scan Chest & Remotes",
     Callback = function()
+        print("=== CHEST DEBUG SCAN ===")
+
+        -- 1. CHEST_ attachments di workspace
         local chests = findAllChestAttachments()
-        print("[F&M Chest] Total chest di map: " .. #chests)
+        print("[1] Total CHEST_ attachment: " .. #chests)
         for i, name in ipairs(chests) do
-            print("  [" .. i .. "] " .. name)
+            print("    [" .. i .. "] " .. name)
         end
-        -- Also print TreasureSpawns
+
+        -- 2. Isi TreasureSpawns (SEMUA tipe, bukan hanya CHEST_)
         local ts = workspace:FindFirstChild("TreasureSpawns")
         if ts then
-            print("[F&M Chest] TreasureSpawns folders:")
-            for _, child in ipairs(ts:GetChildren()) do
-                local count = 0
-                for _, att in ipairs(child:GetDescendants()) do
-                    if att:IsA("Attachment") and att.Name:match("^CHEST_") then count = count + 1 end
+            print("[2] TreasureSpawns folder isi:")
+            for _, islandF in ipairs(ts:GetChildren()) do
+                print("  Folder: " .. islandF.Name)
+                local childCount = 0
+                for _, child in ipairs(islandF:GetChildren()) do
+                    print("    - " .. child.ClassName .. ": " .. child.Name)
+                    childCount = childCount + 1
+                    if childCount >= 10 then print("    ... (truncated)"); break end
                 end
-                print("  " .. child.Name .. ": " .. count .. " chests")
+                if childCount == 0 then print("    (kosong)") end
+            end
+        else
+            print("[2] TreasureSpawns: TIDAK DITEMUKAN di workspace!")
+        end
+
+        -- 3. Scan semua RemoteFunction/Event yang mengandung chest/treasure/open
+        print("[3] Chest-related remotes di ReplicatedStorage:")
+        local found = 0
+        for _, obj in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+            if obj:IsA("RemoteFunction") or obj:IsA("RemoteEvent") then
+                local nm = obj.Name:lower()
+                if nm:find("chest") or nm:find("treasure") or nm:find("open") or nm:find("claim") or nm:find("loot") then
+                    print("    " .. obj.ClassName .. ": " .. obj.Name .. " => " .. obj:GetFullName())
+                    found = found + 1
+                end
             end
         end
-        Rayfield:Notify({
-            Title = "Chest Scan",
-            Content = "Ditemukan " .. #chests .. " chest. Lihat console untuk detail.",
-            Duration = 4
-        })
+        if found == 0 then print("    (tidak ada remote chest ditemukan!)") end
 
+        print("=== END SCAN ===")
+        Rayfield:Notify({
+            Title = "Chest Debug Done!",
+            Content = "CHEST_ att: " .. #chests .. " | Remote: " .. found .. " | Cek F9!",
+            Duration = 5
+        })
     end
 })
+
 
 ----------------------------------------------------
 -- AUTO SELL TAB SECTION
