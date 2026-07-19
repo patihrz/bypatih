@@ -238,31 +238,7 @@ end
 
 -- Find Raid Orb in workspace
 local function findRaidOrb()
-    -- 1. Gunakan GetActiveEvents untuk mendapatkan lokasi spawn boss (PALING AKURAT)
-    local GetActiveEvents = findKnitRemote("BossFishEventService", "GetActiveEvents")
-    if GetActiveEvents then
-        local ok, result = pcall(function() return GetActiveEvents:InvokeServer() end)
-        if ok and type(result) == "table" then
-            for _, eventData in pairs(result) do
-                if type(eventData) == "table" then
-                    local spawnName = eventData.SpawnLocationName or eventData.SpawnLocation
-                    if spawnName and type(spawnName) == "string" and spawnName ~= "" then
-                        -- Cari SpawnLocation di workspace
-                        local spawnPart = workspace:FindFirstChild(spawnName, true)
-                        if spawnPart then
-                            local bp = spawnPart:IsA("BasePart") and spawnPart or spawnPart.PrimaryPart or spawnPart:FindFirstChildWhichIsA("BasePart")
-                            if bp then
-                                print("[F&M Raid] Found spawn via GetActiveEvents: " .. spawnName)
-                                return bp
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    -- 2. Cari ProximityPrompt dengan teks "Participate" / "Join" / "Raid"
+    -- 1. Cari ProximityPrompt dengan teks "Participate" / "Join" / "Raid"
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("ProximityPrompt") then
             local actText = obj.ActionText:lower()
@@ -278,7 +254,7 @@ local function findRaidOrb()
         end
     end
 
-    -- 3. Cari lewat nama object di Workspace (kata kunci umum)
+    -- 2. Cari lewat nama object di Workspace (kata kunci umum)
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") or obj:IsA("Model") then
             local name = obj.Name:lower()
@@ -293,7 +269,7 @@ local function findRaidOrb()
         end
     end
 
-    -- 4. Cari lewat BillboardGui / TextLabel event
+    -- 3. Cari lewat BillboardGui / TextLabel event
     for _, gui in ipairs(workspace:GetDescendants()) do
         if gui:IsA("TextLabel") then
             local txt = gui.Text:lower()
@@ -1905,26 +1881,41 @@ task.spawn(function()
                 end
             end)
 
-            -- 2. Metode Kedua: Direct Remote Spammer (Sangat Cepat)
-            -- 2. Metode Kedua: Direct Remote Spammer (Sangat Cepat)
-            -- Kirim remote langsung ke semua boss di targetsToTap secara parallel (dikali bossTapMultiplier)
-            if cachedPlayerTap and #targetsToTap > 0 then
-                for _, target in ipairs(targetsToTap) do
+            -- 2. Metode Kedua: Direct Remote Spammer
+            -- Prioritas: targetsToTap dari workspace, fallback: activeBossNames langsung
+            local tapTargets = #targetsToTap > 0 and targetsToTap or activeBossNames
+            if cachedPlayerTap and #tapTargets > 0 then
+                for _, target in ipairs(tapTargets) do
                     for i = 1, bossTapMultiplier do
                         task.spawn(function()
-                            local ok, result = pcall(function()
+                            local ok, err = pcall(function()
                                 if cachedPlayerTap:IsA("RemoteFunction") then
-                                    return cachedPlayerTap:InvokeServer(target)
+                                    cachedPlayerTap:InvokeServer(target)
                                 else
-                                    return cachedPlayerTap:FireServer(target)
+                                    cachedPlayerTap:FireServer(target)
                                 end
                             end)
                             if not ok then
-                                warn("[F&M Boss] Tap Error for " .. tostring(target) .. ": " .. tostring(result))
+                                warn("[F&M Boss] Tap Error: " .. tostring(err))
                             end
                         end)
                     end
                 end
+                print(string.format("[F&M Boss] Fired tap x%d -> %s", bossTapMultiplier * #tapTargets, table.concat(tapTargets, ", ")))
+            elseif cachedPlayerTap then
+                -- Last resort: fire tanpa parameter (beberapa game tidak butuh parameter)
+                for i = 1, bossTapMultiplier do
+                    task.spawn(function()
+                        pcall(function()
+                            if cachedPlayerTap:IsA("RemoteFunction") then
+                                cachedPlayerTap:InvokeServer()
+                            else
+                                cachedPlayerTap:FireServer()
+                            end
+                        end)
+                    end)
+                end
+                print("[F&M Boss] Fired tap (no target param)")
             end
 
         else
