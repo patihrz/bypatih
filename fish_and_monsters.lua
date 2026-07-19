@@ -3359,10 +3359,10 @@ TabPlayer:CreateButton({
                     -- SANGAT PENTING: Anchor kembali player saat menunggu klaim
                     -- Ini mencegah player meluncur keluar dari radius interaksi sebelum server menyetujui klaim!
                     hrp.Anchored = true
-                    task.wait((prompt.HoldDuration or 0.6) + 1.0)
+                    task.wait((prompt.HoldDuration or 0.6) + 1.3)
                     
                     hrp.Anchored = false
-                    task.wait(0.2)
+                    task.wait(0.4)
                 end
             end
 
@@ -3431,7 +3431,7 @@ TabPlayer:CreateButton({
                     -- Teleport langsung ke peti dan anchor sejenak agar terrain di bawah peti memuat
                     hrp.Anchored = true
                     hrp.CFrame = CFrame.new(pos + Vector3.new(0, 1.5, 0))
-                    task.wait(2.0) -- Beri waktu 2.0 detik agar ground & peti sinkron
+                    task.wait(3.8) -- Beri waktu 3.8 detik agar ground, model pulau, & peti ter-render lengkap
 
                     -- CFrame Stabilizer
                     for i = 1, 3 do
@@ -3453,7 +3453,7 @@ TabPlayer:CreateButton({
                     -- SANGAT PENTING: Anchor kembali player saat menunggu klaim
                     -- Ini mencegah player berpindah sebelum server selesai menyetujui klaim peti!
                     hrp.Anchored = true
-                    task.wait((prompt.HoldDuration or 0.6) + 1.0)
+                    task.wait((prompt.HoldDuration or 0.6) + 1.5)
 
                     -- Remote bypass backup jika ada attribute spawner
                     local parent = prompt.Parent
@@ -3468,7 +3468,7 @@ TabPlayer:CreateButton({
                     end
 
                     hrp.Anchored = false
-                    task.wait(0.3)
+                    task.wait(0.5)
                 end
             end
 
