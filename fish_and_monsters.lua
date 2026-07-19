@@ -3390,11 +3390,15 @@ TabPlayer:CreateButton({
                     local islandFolder = treasureSpawns and treasureSpawns:FindFirstChild("Island" .. islandIdx)
 
                     if islandFolder then
-                        -- Ambil seluruh Attachment di dalam folder spawn island (pasti spawner chest karena ini di folder spawner!)
+                        -- Ambil spawner chest (Attachment yang bukan milik NPC / Rig)
                         local spawnPoints = {}
                         for _, child in ipairs(islandFolder:GetDescendants()) do
-                            if child:IsA("Attachment") then
-                                table.insert(spawnPoints, child)
+                            if child:IsA("Attachment") and not isNPCOrPlayer(child) then
+                                local nameLower = child.Name:lower()
+                                -- Abaikan standard rig attachments (waistattachment, neckattachment, dll)
+                                if not nameLower:find("attachment") or nameLower:find("chest") or nameLower:find("treasure") then
+                                    table.insert(spawnPoints, child)
+                                end
                             end
                         end
 
@@ -3404,13 +3408,17 @@ TabPlayer:CreateButton({
                         for _, spawnPoint in ipairs(spawnPoints) do
                             local pos = spawnPoint.WorldPosition
                             
-                            -- Teleport dan anchor player (2.5 studs di atas spawner agar tidak stuck/menabrak collision)
+                            -- Teleport dan anchor player sejenak agar map ter-stream dengan sempurna
                             hrp.Anchored = true
-                            hrp.CFrame = CFrame.new(pos + Vector3.new(0, 2.5, 0))
-                            task.wait(0.4) -- Beri waktu asset untuk stream-in / spawn
+                            hrp.CFrame = CFrame.new(pos + Vector3.new(0, 1.5, 0))
+                            task.wait(0.4) -- Beri waktu asset untuk stream-in
 
+                            -- SANGAT PENTING: Unanchor player sebelum interaksi prompt!
+                            -- Roblox mendisable ProximityPrompt jika player dalam keadaan Anchored.
+                            hrp.Anchored = false
+                            task.wait(0.05)
 
-                            -- Scan ProximityPrompt di dekat player (radius ditingkatkan ke 30 studs)
+                            -- Scan ProximityPrompt di dekat player (radius 30 studs)
                             local prompts = getNearbyChestPrompts(30)
                             print(string.format("[F&M Chest Debug] Teleported to %s, found %d prompts", spawnPoint.Name, #prompts))
                             
@@ -3433,10 +3441,6 @@ TabPlayer:CreateButton({
                                     end
                                 end
                             end
-
-                            -- Lepaskan anchor untuk pindah ke spawner berikutnya
-                            hrp.Anchored = false
-                            task.wait(0.1)
                         end
                     else
                         print("[F&M Chest ALL] Folder TreasureSpawns.Island" .. islandIdx .. " tidak ditemukan!")
