@@ -779,6 +779,33 @@ TabFishing:CreateButton({
             end
         end
 
+        -- 8. Scan LocalPlayer Children
+        log("\n[8] LOCALPLAYER CHILDREN:")
+        for _, child in ipairs(LP:GetChildren()) do
+            log(string.format("  Child: %s (Class: %s)", child.Name, child.ClassName))
+        end
+
+        -- 9. Active Spawns Floaters structural scan
+        log("\n[9] ACTIVE SPAWNS FLOATERS DETAIL:")
+        local activeSpawns = game:GetService("ReplicatedStorage"):FindFirstChild("ActiveSpawns")
+        local floatersFolder = activeSpawns and activeSpawns:FindFirstChild("Floaters")
+        if floatersFolder then
+            for _, child in ipairs(floatersFolder:GetChildren()) do
+                log(string.format("  Floater Model: %s (Class: %s)", child.Name, child.ClassName))
+                for k, v in pairs(child:GetAttributes()) do
+                    log(string.format("    Attribute: %s = %s (%s)", k, tostring(v), typeof(v)))
+                end
+                for _, sub in ipairs(child:GetChildren()) do
+                    local valStr = ""
+                    local valOk, val = pcall(function() return sub.Value end)
+                    if valOk then valStr = " = " .. tostring(val) end
+                    log(string.format("    Sub-child: %s (Class: %s)%s", sub.Name, sub.ClassName, valStr))
+                end
+            end
+        else
+            log("  ReplicatedStorage.ActiveSpawns.Floaters not found.")
+        end
+
         log("\n========================================")
         log("=== END OF DEBUG ===")
         log("========================================")
