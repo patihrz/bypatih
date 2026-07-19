@@ -2837,13 +2837,9 @@ local function updateCoordsFromWorkspace()
                 end
             end
             if foundPos then
-                -- Jangan timpa jika posisinya di bawah laut (Y < 20)
-                if foundPos.Y > 20 then
-                    island.coords = foundPos
-                    print(string.format("[F&M Island Cache] Dynamic map: %s -> %s", island.name, tostring(foundPos)))
-                else
-                    print(string.format("[F&M Island Cache] Ignored sea-level coord for %s: %s", island.name, tostring(foundPos)))
-                end
+                -- Ambil koordinat dynamic dari game tanpa batasan Y (termasuk pulau rendah/pelabuhan)
+                island.coords = foundPos
+                print(string.format("[F&M Island Cache] Dynamic map: %s -> %s", island.name, tostring(foundPos)))
             end
         end
     end
@@ -2854,24 +2850,54 @@ pcall(updateCoordsFromWorkspace)
 -- Helper untuk cek apakah object adalah bagian dari NPC / Player
 local function isNPCOrPlayer(inst)
     if not inst then return false end
-    -- Cek jika ada Humanoid di ancestor model manapun
     local model = inst:FindFirstAncestorOfClass("Model")
     if model and (model:FindFirstChildOfClass("Humanoid") or model:FindFirstChild("HumanoidRootPart")) then
         return true
     end
-    -- Filter nama model umum NPC
     local name = inst.Name:lower()
-    if name:find("npc") or name:find("story") or name:find("seller") or name:find("hermit") or name:find("fisherman") then
+    if name:find("npc") or name:find("story") or name:find("seller") or name:find("hermit") or name:find("fisherman") or name:find("tua") or name:find("pertapa") then
         return true
     end
     if model then
         local modelName = model.Name:lower()
-        if modelName:find("npc") or modelName:find("story") or modelName:find("seller") or modelName:find("hermit") or modelName:find("fisherman") then
+        if modelName:find("npc") or modelName:find("story") or modelName:find("seller") or modelName:find("hermit") or modelName:find("fisherman") or modelName:find("tua") or modelName:find("pertapa") or modelName:find("luther") then
             return true
         end
     end
     return false
 end
+
+-- Filter khusus Chest Prompt (Mencegah Teleport/Aktivasi NPC secara total)
+local function isChestPrompt(prompt)
+    if not prompt or not prompt.Parent then return false end
+    if isNPCOrPlayer(prompt) or isNPCOrPlayer(prompt.Parent) then return false end
+
+    local act = prompt.ActionText:lower()
+    local obj = prompt.ObjectText:lower()
+    local name = prompt.Name:lower()
+    local combined = act .. " " .. obj .. " " .. name
+
+    -- Blacklist kata kunci NPC/Shop/Quest/Teleport
+    if combined:find("talk") or combined:find("bicara") or combined:find("shop") or 
+       combined:find("buy") or combined:find("sell") or combined:find("quest") or 
+       combined:find("teleport") or combined:find("boat") or combined:find("perahu") or
+       combined:find("rent") or combined:find("sewa") or combined:find("interact") or
+       combined:find("tanya") or combined:find("toko") or combined:find("jual") or
+       combined:find("beli") or combined:find("misi") or combined:find("menu") then
+        return false
+    end
+
+    -- Whitelist kata kunci chest/treasure/peti
+    if combined:find("chest") or combined:find("treasure") or combined:find("peti") or 
+       combined:find("harta") or combined:find("loot") or combined:find("claim") or
+       combined:find("open") or combined:find("buka") or combined:find("ambil") or
+       name:find("chest") or name:find("treasure") or name:find("peti") then
+        return true
+    end
+
+    return false
+end
+
 
 -- Cache SpawnService remote
 local cachedHudTeleport = nil
@@ -3239,14 +3265,14 @@ local function firePrompt(prompt)
     end)
 end
 
--- Helper: cari ProximityPrompt di sekitar player (radius ditingkatkan ke 30 studs)
+-- Helper: cari ProximityPrompt di sekitar player (menggunakan filter isChestPrompt)
 local function getNearbyChestPrompts(radius)
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return {} end
     local list = {}
     for _, desc in ipairs(workspace:GetDescendants()) do
-        if desc:IsA("ProximityPrompt") and not isNPCOrPlayer(desc) then
+        if desc:IsA("ProximityPrompt") and isChestPrompt(desc) then
             local parent = desc.Parent
             if parent and parent:IsA("BasePart") then
                 local dist = (parent.Position - hrp.Position).Magnitude
@@ -3271,16 +3297,13 @@ TabPlayer:CreateButton({
         end
 
         task.spawn(function()
-            -- Scan semua ProximityPrompt bertema chest (abaikan NPC)
+            -- Scan semua ProximityPrompt bertema chest menggunakan filter isChestPrompt
             local promptsToTrigger = {}
             for _, desc in ipairs(workspace:GetDescendants()) do
-                if desc:IsA("ProximityPrompt") and not isNPCOrPlayer(desc) then
+                if desc:IsA("ProximityPrompt") and isChestPrompt(desc) then
                     local parent = desc.Parent
-                    local text = (desc.ActionText .. " " .. desc.ObjectText):lower()
-                    if text:find("chest") or text:find("treasure") or text:find("open") or text:find("claim") or desc.Name:lower():find("chest") then
-                        if parent and parent:IsA("BasePart") then
-                            table.insert(promptsToTrigger, desc)
-                        end
+                    if parent and parent:IsA("BasePart") then
+                        table.insert(promptsToTrigger, desc)
                     end
                 end
             end
@@ -3367,14 +3390,11 @@ TabPlayer:CreateButton({
                     local islandFolder = treasureSpawns and treasureSpawns:FindFirstChild("Island" .. islandIdx)
 
                     if islandFolder then
-                        -- Hanya ambil Attachment yang mengandung kata 'chest' atau 'treasure' (menghindari NPC)
+                        -- Ambil seluruh Attachment di dalam folder spawn island (pasti spawner chest karena ini di folder spawner!)
                         local spawnPoints = {}
                         for _, child in ipairs(islandFolder:GetDescendants()) do
-                            if child:IsA("Attachment") and not isNPCOrPlayer(child) then
-                                local nm = child.Name:lower()
-                                if nm:find("chest") or nm:find("treasure") or nm:match("^chest_") then
-                                    table.insert(spawnPoints, child)
-                                end
+                            if child:IsA("Attachment") then
+                                table.insert(spawnPoints, child)
                             end
                         end
 
