@@ -629,6 +629,137 @@ TabFishing:CreateSlider({
     end
 })
 
+TabFishing:CreateButton({
+    Name = "📋 [DEBUG] Scan & Copy Fishing Info",
+    Callback = function()
+        local logLines = {}
+        local function log(str)
+            table.insert(logLines, str)
+            print(str)
+        end
+
+        log("========================================")
+        log("=== DETAILED FISHING & REMOTE DEBUG ===")
+        log("========================================")
+
+        -- 1. Scan core fishing remotes
+        log("\n[1] KNIT FISHING REMOTES STATUS:")
+        local remotesToScan = {
+            {"FishingReplicationService", "ThrowFloater"},
+            {"FishingReplicationService", "ConfirmFloatingCast"},
+            {"FishingReplicationService", "StartFishing"},
+            {"FishingReplicationService", "StartPulling"},
+            {"FishingReplicationService", "StopFishing"},
+            {"FishingRewardService", "FishingPullInput"},
+            {"FishingRewardService", "RequestFishBite"},
+            {"FishingRewardService", "FishCaught"},
+            {"FishingRewardService", "FishingSuccess"},
+            {"FishingRewardService", "FishingPullState"}
+        }
+
+        for _, info in ipairs(remotesToScan) do
+            local service = info[1]
+            local remote = info[2]
+            local resolved = findKnitRemote(service, remote)
+            if resolved then
+                log(string.format("  Remote: %s.%s => FOUND | Path: %s | Class: %s", service, remote, resolved:GetFullName(), resolved.ClassName))
+            else
+                log(string.format("  Remote: %s.%s => NOT FOUND!", service, remote))
+            end
+        end
+
+        -- 2. Scan Player Attributes
+        log("\n[2] LOCALPLAYER ATTRIBUTES:")
+        local attrs = LP:GetAttributes()
+        local attrCount = 0
+        for k, v in pairs(attrs) do
+            attrCount = attrCount + 1
+            log(string.format("  Attribute: %s = %s (%s)", k, tostring(v), typeof(v)))
+        end
+        if attrCount == 0 then
+            log("  No attributes found on LocalPlayer.")
+        end
+
+        -- 3. Scan Equipped and Backpack Tools
+        log("\n[3] TOOLS IN CHARACTER & BACKPACK:")
+        local function scanTools(parent, nameTag)
+            local count = 0
+            for _, child in ipairs(parent:GetChildren()) do
+                if child:IsA("Tool") then
+                    count = count + 1
+                    log(string.format("  [%s] Tool Name: %s | Class: %s", nameTag, child.Name, child.ClassName))
+                end
+            end
+            if count == 0 then
+                log(string.format("  No tools found in %s.", nameTag))
+            end
+        end
+        if LP.Character then
+            scanTools(LP.Character, "Character")
+        else
+            log("  Character not loaded.")
+        end
+        scanTools(LP.Backpack, "Backpack")
+
+        -- 4. Test Water Target
+        log("\n[4] WATER TARGET TEST:")
+        local char = LP.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local wt = getWaterTarget(hrp.Position)
+            log(string.format("  HRP Position: %s", tostring(hrp.Position)))
+            log(string.format("  Resolved Water Target: %s", tostring(wt)))
+        else
+            log("  Cannot test water target: HumanoidRootPart not found.")
+        end
+
+        -- 5. Scan workspace for active floaters
+        log("\n[5] FLOATERS IN WORKSPACE:")
+        local floaterCount = 0
+        for _, desc in ipairs(workspace:GetDescendants()) do
+            if desc.Name:lower():find("floater") or desc.Name:lower():find("float") then
+                floaterCount = floaterCount + 1
+                log(string.format("  Floater Found: %s | Class: %s | Path: %s", desc.Name, desc.ClassName, desc:GetFullName()))
+            end
+        end
+        if floaterCount == 0 then
+            log("  No active floaters found in workspace.")
+        end
+
+        log("\n========================================")
+        log("=== END OF DEBUG ===")
+        log("========================================")
+
+        local fullLog = table.concat(logLines, "\n")
+        
+        -- Salin ke clipboard
+        local copySuccess = false
+        if typeof(setclipboard) == "function" then
+            pcall(function() setclipboard(fullLog) copySuccess = true end)
+        end
+        if not copySuccess and typeof(toClipboard) == "function" then
+            pcall(function() toClipboard(fullLog) copySuccess = true end)
+        end
+        if not copySuccess and Clipboard and typeof(Clipboard.set) == "function" then
+            pcall(function() Clipboard.set(fullLog) copySuccess = true end)
+        end
+
+        if copySuccess then
+            Rayfield:Notify({
+                Title = "Debug Copied!",
+                Content = "Hasil scan memancing disalin ke clipboard! Silakan paste ke Antigravity.",
+                Duration = 6
+            })
+        else
+            Rayfield:Notify({
+                Title = "Scan Done",
+                Content = "Scan selesai! Lihat detail di F9 Console karena Clipboard tidak didukung.",
+                Duration = 6
+            })
+        end
+    end
+})
+
 TabFishing:CreateToggle({
     Name = "Auto Equip Rod",
     CurrentValue = false,
