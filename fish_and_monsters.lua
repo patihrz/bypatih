@@ -298,7 +298,7 @@ local function findRaidOrb()
         if gui:IsA("TextLabel") then
             local txt = gui.Text:lower()
             if txt:find("raid") or txt:find("start in") or txt:find("ready:") or txt:find("participate") then
-                local billboard = gui:FindAncestorOfClass("BillboardGui")
+                local billboard = gui:FindFirstAncestorOfClass("BillboardGui")
                 local adornee = billboard and (billboard.Adornee or billboard.Parent)
                 if adornee and adornee:IsA("BasePart") then
                     print("[F&M Finder] Found Raid Zone via Billboard: " .. gui.Text)
