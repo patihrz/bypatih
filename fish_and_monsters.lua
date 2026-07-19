@@ -3265,7 +3265,24 @@ local function firePrompt(prompt)
     end)
 end
 
--- Helper: cari ProximityPrompt di sekitar player (menggunakan filter isChestPrompt)
+-- Helper: dapatkan posisi riil dari parent ProximityPrompt (bisa berupa BasePart, Model, atau Attachment)
+local function getPromptPosition(prompt)
+    if not prompt or not prompt.Parent then return nil end
+    local parent = prompt.Parent
+    if parent:IsA("BasePart") then
+        return parent.Position
+    elseif parent:IsA("Model") then
+        local bp = parent:FindFirstChildOfClass("BasePart") or parent.PrimaryPart
+        if bp then
+            return bp.Position
+        end
+    elseif parent:IsA("Attachment") then
+        return parent.WorldPosition
+    end
+    return nil
+end
+
+-- Helper: cari ProximityPrompt di sekitar player (menggunakan filter isChestPrompt & getPromptPosition)
 local function getNearbyChestPrompts(radius)
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -3273,9 +3290,9 @@ local function getNearbyChestPrompts(radius)
     local list = {}
     for _, desc in ipairs(workspace:GetDescendants()) do
         if desc:IsA("ProximityPrompt") and isChestPrompt(desc) then
-            local parent = desc.Parent
-            if parent and parent:IsA("BasePart") then
-                local dist = (parent.Position - hrp.Position).Magnitude
+            local pos = getPromptPosition(desc)
+            if pos then
+                local dist = (pos - hrp.Position).Magnitude
                 if dist <= radius then
                     table.insert(list, desc)
                 end
@@ -3301,10 +3318,7 @@ TabPlayer:CreateButton({
             local promptsToTrigger = {}
             for _, desc in ipairs(workspace:GetDescendants()) do
                 if desc:IsA("ProximityPrompt") and isChestPrompt(desc) then
-                    local parent = desc.Parent
-                    if parent and parent:IsA("BasePart") then
-                        table.insert(promptsToTrigger, desc)
-                    end
+                    table.insert(promptsToTrigger, desc)
                 end
             end
 
@@ -3325,11 +3339,19 @@ TabPlayer:CreateButton({
             -- Klaim via CFrame Teleport + ProximityPrompt
             local opened = 0
             for _, prompt in ipairs(promptsToTrigger) do
-                local parent = prompt.Parent
-                if parent and parent:IsA("BasePart") then
+                local pos = getPromptPosition(prompt)
+                if pos then
+                    -- TELEPORT STABILIZER
                     hrp.Anchored = true
-                    hrp.CFrame = CFrame.new(parent.Position + Vector3.new(0, 2.5, 0))
-                    task.wait(0.3)
+                    for i = 1, 3 do
+                        hrp.CFrame = CFrame.new(pos + Vector3.new(0, 1.5, 0))
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                        task.wait(0.08)
+                    end
+                    task.wait(0.1)
+
+                    hrp.Anchored = false
+                    task.wait(0.05)
                     
                     firePrompt(prompt)
                     opened = opened + 1
@@ -3373,86 +3395,70 @@ TabPlayer:CreateButton({
                 Duration = 5
             })
 
-            -- Refresh dynamic coordinates sebelum run
             pcall(updateCoordsFromWorkspace)
 
             for islandIdx, island in ipairs(ISLANDS) do
-                -- Jangan run di base/lobby (index 7)
                 if islandIdx <= 6 then
                     print("[F&M Chest ALL] Menuju pulau: " .. island.name)
                     
                     -- Teleport ke pulau
                     local tpOk, tpMsg = teleportToIsland(island)
-                    task.wait(2.5) -- Tunggu loading map
+                    task.wait(2.5) -- Tunggu loading map & streaming
 
-                    -- Dapatkan folder spawn chest untuk pulau ini
-                    local treasureSpawns = workspace:FindFirstChild("TreasureSpawns")
-                    local islandFolder = treasureSpawns and treasureSpawns:FindFirstChild("Island" .. islandIdx)
-
-                    if islandFolder then
-                        -- Ambil spawner chest (HANYA Attachment bernama CHEST_ atau TREASURE_ yang bukan milik NPC / Rig)
-                        local spawnPoints = {}
-                        for _, child in ipairs(islandFolder:GetDescendants()) do
-                            if child:IsA("Attachment") and not isNPCOrPlayer(child) then
-                                local nameLower = child.Name:lower()
-                                -- Filter ketat: Harus ada kata chest/treasure, tapi bukan ChestAttachment bawaan rig karakter
-                                if (nameLower:find("chest") or nameLower:find("treasure") or nameLower:match("^chest_")) and not nameLower:find("chestattachment") then
-                                    table.insert(spawnPoints, child)
+                    -- Scan all Chest_Local prompts currently visible (max distance 600 studs dari base pulau)
+                    local islandPrompts = {}
+                    for _, desc in ipairs(workspace:GetDescendants()) do
+                        if desc:IsA("ProximityPrompt") and isChestPrompt(desc) then
+                            local pos = getPromptPosition(desc)
+                            if pos then
+                                local dist = (pos - island.coords).Magnitude
+                                if dist <= 600 then
+                                    table.insert(islandPrompts, desc)
                                 end
                             end
                         end
+                    end
 
-                        print("[F&M Chest ALL] Pulau " .. island.name .. ": Teleporting ke " .. #spawnPoints .. " titik spawn chest...")
+                    print(string.format("[F&M Chest ALL] Pulau %s: Ditemukan %d chest aktif di sekitar.", island.name, #islandPrompts))
 
-                        -- Teleport ke setiap spawner chest satu per satu
-                        for _, spawnPoint in ipairs(spawnPoints) do
-                            local pos = spawnPoint.WorldPosition
-                            
-                            -- TELEPORT STABILIZER LOOP (Mengatasi Lag Replikasi Server)
-                            -- Mengirim update posisi berkali-kali agar server mencatat player berada di peti
+                    -- Teleport langsung ke setiap chest aktif
+                    for _, prompt in ipairs(islandPrompts) do
+                        local pos = getPromptPosition(prompt)
+                        if pos then
+                            -- TELEPORT STABILIZER (Agar server mencatat posisi player secara valid)
                             hrp.Anchored = true
                             for i = 1, 4 do
                                 hrp.CFrame = CFrame.new(pos + Vector3.new(0, 1.5, 0))
                                 hrp.AssemblyLinearVelocity = Vector3.zero
                                 task.wait(0.08)
                             end
-                            task.wait(0.2) -- Beri jeda tambahan agar server memproses jarak
-
-                            -- 1. PANGGIL REMOTE (Paling Ampuh & Instan berdasarkan RemoteSpy!)
-                            if remote then
-                                local ok, result = pcall(function()
-                                    return remote:InvokeServer(spawnPoint.Name)
-                                end)
-                                if ok then
-                                    totalOpened = totalOpened + 1
-                                    print("[F&M Chest ALL] ⚡ Remote bypass sukses untuk spawner: " .. spawnPoint.Name)
-                                else
-                                    print("[F&M Chest ALL] ❌ Remote gagal: " .. tostring(result))
-                                end
-                            end
-
-                            -- 2. Pemicu ProximityPrompt Fisik (Backup jika remote ditolak/berubah)
-                            local prompts = getNearbyChestPrompts(30)
-                            for _, prompt in ipairs(prompts) do
-                                local parent = prompt.Parent
-                                if parent and parent:IsA("BasePart") then
-                                    hrp.CFrame = CFrame.new(parent.Position + Vector3.new(0, 1.5, 0))
-                                    hrp.Anchored = false -- Unanchor sebelum interaksi agar prompt aktif secara fisik
-                                    task.wait(0.05)
-
-                                    firePrompt(prompt)
-                                    totalOpened = totalOpened + 1
-                                    print("[F&M Chest ALL] ✅ Backup ProximityPrompt sukses: " .. parent.Name)
-                                    task.wait((prompt.HoldDuration or 0.2) + 0.3)
-                                end
-                            end
-
-                            -- Lepaskan anchor agar tidak macet untuk spawner berikutnya
-                            hrp.Anchored = false
                             task.wait(0.1)
+
+                            -- SANGAT PENTING: Unanchor player sebelum interaksi prompt!
+                            hrp.Anchored = false
+                            task.wait(0.05)
+
+                            -- Fire prompt!
+                            firePrompt(prompt)
+                            totalOpened = totalOpened + 1
+                            print("[F&M Chest ALL] ✅ Mengaktifkan ProximityPrompt: " .. prompt.Parent.Name)
+                            task.wait((prompt.HoldDuration or 0.2) + 0.3)
+
+                            -- Remote backup if attributes are found
+                            local parent = prompt.Parent
+                            if parent and remote then
+                                pcall(function()
+                                    local id = parent:GetAttribute("Id") or parent:GetAttribute("Attachment")
+                                    if id then
+                                        remote:InvokeServer(id)
+                                        print("[F&M Chest ALL] ⚡ Remote backup fired with ID: " .. tostring(id))
+                                    end
+                                end)
+                            end
+
+                            hrp.Anchored = false
+                            task.wait(0.2)
                         end
-                    else
-                        print("[F&M Chest ALL] Folder TreasureSpawns.Island" .. islandIdx .. " tidak ditemukan!")
                     end
 
                     Rayfield:Notify({
