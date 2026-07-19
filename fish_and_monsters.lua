@@ -709,6 +709,9 @@ local function runBlatantFishingCycle()
     local StopFishing         = findKnitRemote("FishingReplicationService", "StopFishing")
     local FishingPullInput    = findKnitRemote("FishingRewardService",      "FishingPullInput")
     local RequestFishBite     = findKnitRemote("FishingRewardService",      "RequestFishBite")
+    local FishCaught          = findKnitRemote("FishingRewardService",      "FishCaught")
+    local FishingSuccess      = findKnitRemote("FishingRewardService",      "FishingSuccess")
+    local FishingPullState    = findKnitRemote("FishingRewardService",      "FishingPullState")
 
     if not (ThrowFloater and ConfirmFloatingCast and StartPulling and StopFishing and FishingPullInput) then
         return false
@@ -720,7 +723,7 @@ local function runBlatantFishingCycle()
 
     -- Reset state & start new session
     pcall(function() StopFishing:InvokeServer() end)
-    task.wait(0.04)
+    task.wait(0.1)
     if StartFishing then
         pcall(function() StartFishing:InvokeServer(activeRodName, activeFloaterName) end)
     end
@@ -734,13 +737,57 @@ local function runBlatantFishingCycle()
     local floatConfig = {LightInfluence=0, FaceCamera=true, Color=Color3.new(0.94,0.31,1), Transparency=0.02, LightEmission=1, Width=0.24}
     local oldCastId = LP:GetAttribute("FishingCastId") or ""
 
+    -- Listener lokal (sangat hemat memori & CPU, auto disconnect)
+    local caughtFishName = nil
+    local serverReadyForPull = false
+    local connections = {}
+
+    local function disconnectAll()
+        for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
+        connections = {}
+    end
+
+    if FishCaught and FishCaught:IsA("RemoteEvent") then
+        connections[#connections+1] = FishCaught.OnClientEvent:Connect(function(...)
+            for _, v in ipairs({...}) do
+                if type(v) == "string" and v ~= "" and not v:match("^%x+-%x+-%x+-%x+-%x+$") then
+                    caughtFishName = v
+                end
+                if type(v) == "table" then
+                    local n = extractFishName(v)
+                    if n then caughtFishName = n end
+                end
+            end
+        end)
+    end
+
+    if FishingSuccess and FishingSuccess:IsA("RemoteEvent") then
+        connections[#connections+1] = FishingSuccess.OnClientEvent:Connect(function(...)
+            for _, v in ipairs({...}) do
+                if type(v) == "string" and v ~= "" and not v:match("^%x+-%x+-%x+-%x+-%x+$") then
+                    caughtFishName = v
+                end
+                if type(v) == "table" then
+                    local n = extractFishName(v)
+                    if n then caughtFishName = n end
+                end
+            end
+        end)
+    end
+
+    if FishingPullState and FishingPullState:IsA("RemoteEvent") then
+        connections[#connections+1] = FishingPullState.OnClientEvent:Connect(function(...)
+            serverReadyForPull = true
+        end)
+    end
+
     -- 1. Throw Floater
     pcall(function() ThrowFloater:InvokeServer(origin, target, activeRodName, activeFloaterName, floatConfig, 2.5) end)
-    task.wait(0.04)
+    task.wait(0.2) -- Jeda aman agar server mencatat cast
 
     -- 2. Confirm Cast
     pcall(function() ConfirmFloatingCast:InvokeServer(target) end)
-    task.wait(0.04)
+    task.wait(0.05)
 
     -- 3. Request Bite & Ambil UUID Instan
     local uuid = nil
@@ -755,41 +802,57 @@ local function runBlatantFishingCycle()
         end
     end
 
-    if not uuid then
-        -- Cek attribute jika belum ter-assign
+    -- Fallback tunggu bite dari server jika belum ter-assign (max 2.5 detik)
+    if not uuid or uuid == "" or uuid == oldCastId then
         local w = 0
-        while w < 0.4 do
-            uuid = LP:GetAttribute("FishingCastId")
-            if uuid and uuid ~= "" and uuid ~= oldCastId then
+        while w < 2.5 do
+            local castId = LP:GetAttribute("FishingCastId")
+            if castId and castId ~= "" and castId ~= oldCastId then
+                uuid = castId
                 break
-            else
-                uuid = nil
             end
-            task.wait(0.01)
-            w = w + 0.01
+            task.wait(0.05)
+            w = w + 0.05
         end
     end
 
     if not uuid then
+        disconnectAll()
         pcall(function() StopFishing:InvokeServer() end)
         return false
     end
 
-    -- 4. Start Pulling & Tapping Instan Tanpa Delay!
-    pcall(function() StartPulling:InvokeServer() end)
-    pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
-
-    -- Spam 16 ketukan instan secara berurutan dalam satu frame
-    for i = 1, 16 do
-        pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
+    -- Tunggu FishingPullState (maksimal 1.0 detik) agar server siap menerima input pull/tap
+    local wsrv = 0
+    while wsrv < 1.0 and not serverReadyForPull do
+        task.wait(0.02)
+        wsrv = wsrv + 0.02
     end
 
-    -- 5. Jeda kecil agar server memproses semua tap sebelum StopFishing dikirim
-    task.wait(0.08)
+    -- 4. Start Pulling & Tapping Instan!
+    pcall(function() StartPulling:InvokeServer() end)
+    pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
+    task.wait(0.02)
 
-    -- 6. Klaim & Hentikan Sesi
+    -- Spam ketukan tap instan dengan jeda minimal (10ms)
+    for i = 1, 16 do
+        if caughtFishName then break end
+        pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
+        task.wait(0.01)
+    end
+
+    -- Tunggu max 1.0 detik untuk konfirmasi penangkapan dari server
+    local wt = 0
+    while wt < 1.0 and not caughtFishName do
+        task.wait(0.02)
+        wt = wt + 0.02
+    end
+
+    disconnectAll()
+
+    -- 5. Klaim & Hentikan Sesi
     pcall(function() StopFishing:InvokeServer() end)
-    task.wait(0.04)
+    task.wait(0.05)
 
     -- Tutup banner secara instan
     dismissCaughtBanner()
