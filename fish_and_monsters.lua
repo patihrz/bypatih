@@ -77,6 +77,9 @@ local sellIntervalMinutes = 5
 local autoSellCount = false
 local sellCountThreshold = 30
 local caughtCount = 0
+local antiAFK = false
+local antiAFKConnection = nil
+local antiAFKToggle = nil
 
 local sellCommon = true
 local sellUncommon = true
@@ -164,6 +167,29 @@ local function equipRod()
         if hum then
             hum:EquipTool(rod)
             print("[F&M Helper] Equipped rod: " .. rod.Name)
+        end
+    end
+end
+
+-- Helper: Aktifkan/Matikan Anti-AFK untuk mencegah kick 20 menit idle
+local function toggleAntiAFK(state)
+    antiAFK = state
+    if state then
+        if not antiAFKConnection then
+            antiAFKConnection = LP.Idled:Connect(function()
+                pcall(function()
+                    VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                    task.wait(0.5)
+                    VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                end)
+            end)
+            print("[F&M] Anti-AFK Activated!")
+        end
+    else
+        if antiAFKConnection then
+            pcall(function() antiAFKConnection:Disconnect() end)
+            antiAFKConnection = nil
+            print("[F&M] Anti-AFK Deactivated!")
         end
     end
 end
@@ -561,6 +587,13 @@ TabFishing:CreateToggle({
             autoBlatantFishingV2 = false
             print("[F&M Blatant] ENABLED - Mode blatant v1 aktif.")
             Rayfield:Notify({Title = "Blatant v1 ON", Content = "Spam fishing max speed aktif!", Duration = 3})
+            
+            -- Auto-enable Anti-AFK
+            if antiAFKToggle then
+                antiAFKToggle:Set(true)
+            else
+                toggleAntiAFK(true)
+            end
         end
     end
 })
@@ -576,6 +609,13 @@ TabFishing:CreateToggle({
             autoBlatantFishing = false
             print("[F&M Blatant v2] ENABLED - Mode blatant v2 gacor & aman aktif.")
             Rayfield:Notify({Title = "Blatant v2 ON", Content = "Blatant v2 gacor & inventory-safe aktif!", Duration = 3})
+            
+            -- Auto-enable Anti-AFK
+            if antiAFKToggle then
+                antiAFKToggle:Set(true)
+            else
+                toggleAntiAFK(true)
+            end
         end
     end
 })
@@ -3075,6 +3115,17 @@ TabPlayer:CreateButton({
     end
 })
 
+
+TabPlayer:CreateSection("AFK Settings")
+
+antiAFKToggle = TabPlayer:CreateToggle({
+    Name = "Anti-AFK Connection (Idle Safety)",
+    CurrentValue = false,
+    Flag = "AntiAFKFlag",
+    Callback = function(value)
+        toggleAntiAFK(value)
+    end
+})
 
 TabPlayer:CreateSection("Character Modifiers")
 
