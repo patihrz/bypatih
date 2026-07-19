@@ -3390,12 +3390,13 @@ TabPlayer:CreateButton({
                     local islandFolder = treasureSpawns and treasureSpawns:FindFirstChild("Island" .. islandIdx)
 
                     if islandFolder then
-                        -- Ambil spawner chest (HANYA Attachment bernama CHEST_ atau TREASURE_)
+                        -- Ambil spawner chest (HANYA Attachment bernama CHEST_ atau TREASURE_ yang bukan milik NPC / Rig)
                         local spawnPoints = {}
                         for _, child in ipairs(islandFolder:GetDescendants()) do
-                            if child:IsA("Attachment") then
+                            if child:IsA("Attachment") and not isNPCOrPlayer(child) then
                                 local nameLower = child.Name:lower()
-                                if nameLower:find("chest") or nameLower:find("treasure") or nameLower:match("^chest_") then
+                                -- Filter ketat: Harus ada kata chest/treasure, tapi bukan ChestAttachment bawaan rig karakter
+                                if (nameLower:find("chest") or nameLower:find("treasure") or nameLower:match("^chest_")) and not nameLower:find("chestattachment") then
                                     table.insert(spawnPoints, child)
                                 end
                             end
@@ -3407,45 +3408,48 @@ TabPlayer:CreateButton({
                         for _, spawnPoint in ipairs(spawnPoints) do
                             local pos = spawnPoint.WorldPosition
                             
-                            -- Teleport dan anchor player sejenak di atas titik spawner agar map ter-stream
+                            -- TELEPORT STABILIZER LOOP (Mengatasi Lag Replikasi Server)
+                            -- Mengirim update posisi berkali-kali agar server mencatat player berada di peti
                             hrp.Anchored = true
-                            hrp.CFrame = CFrame.new(pos + Vector3.new(0, 5, 0))
-                            task.wait(0.4) -- Beri waktu asset untuk stream-in
+                            for i = 1, 4 do
+                                hrp.CFrame = CFrame.new(pos + Vector3.new(0, 1.5, 0))
+                                hrp.AssemblyLinearVelocity = Vector3.zero
+                                task.wait(0.08)
+                            end
+                            task.wait(0.2) -- Beri jeda tambahan agar server memproses jarak
 
-                            -- Scan ProximityPrompt di dekat player (radius 30 studs)
+                            -- 1. PANGGIL REMOTE (Paling Ampuh & Instan berdasarkan RemoteSpy!)
+                            if remote then
+                                local ok, result = pcall(function()
+                                    return remote:InvokeServer(spawnPoint.Name)
+                                end)
+                                if ok then
+                                    totalOpened = totalOpened + 1
+                                    print("[F&M Chest ALL] ⚡ Remote bypass sukses untuk spawner: " .. spawnPoint.Name)
+                                else
+                                    print("[F&M Chest ALL] ❌ Remote gagal: " .. tostring(result))
+                                end
+                            end
+
+                            -- 2. Pemicu ProximityPrompt Fisik (Backup jika remote ditolak/berubah)
                             local prompts = getNearbyChestPrompts(30)
-                            print(string.format("[F&M Chest Debug] Teleported to %s, found %d prompts", spawnPoint.Name, #prompts))
-                            
                             for _, prompt in ipairs(prompts) do
                                 local parent = prompt.Parent
                                 if parent and parent:IsA("BasePart") then
-                                    -- Teleport langsung nempel ke petinya agar jarak sedekat mungkin
                                     hrp.CFrame = CFrame.new(parent.Position + Vector3.new(0, 1.5, 0))
-                                    hrp.Anchored = false -- Unanchor sebelum interaksi agar prompt aktif
-                                    task.wait(0.1)
+                                    hrp.Anchored = false -- Unanchor sebelum interaksi agar prompt aktif secara fisik
+                                    task.wait(0.05)
 
                                     firePrompt(prompt)
                                     totalOpened = totalOpened + 1
-                                    print("[F&M Chest ALL] ✅ Mengaktifkan ProximityPrompt: " .. parent.Name)
+                                    print("[F&M Chest ALL] ✅ Backup ProximityPrompt sukses: " .. parent.Name)
                                     task.wait((prompt.HoldDuration or 0.2) + 0.3)
                                 end
                             end
 
-                            -- Cari CHEST_ remote target di dekat player sebagai backup
-                            for _, desc in ipairs(workspace:GetDescendants()) do
-                                if desc:IsA("Attachment") and desc.Name:match("^CHEST_") then
-                                    local dist = (desc.WorldPosition - hrp.Position).Magnitude
-                                    if dist < 30 and remote then
-                                        pcall(function() remote:InvokeServer(desc.Name) end)
-                                        totalOpened = totalOpened + 1
-                                        print("[F&M Chest ALL] ⚡ Fired remote chest: " .. desc.Name)
-                                        task.wait(0.2)
-                                    end
-                                end
-                            end
-
-                            -- Pastikan unanchor sebelum pindah ke spawner berikutnya
+                            -- Lepaskan anchor agar tidak macet untuk spawner berikutnya
                             hrp.Anchored = false
+                            task.wait(0.1)
                         end
                     else
                         print("[F&M Chest ALL] Folder TreasureSpawns.Island" .. islandIdx .. " tidak ditemukan!")
@@ -3459,6 +3463,7 @@ TabPlayer:CreateButton({
                     task.wait(1.5)
                 end
             end
+
 
 
             Rayfield:Notify({
