@@ -238,11 +238,51 @@ end
 
 -- Find Raid Orb in workspace
 local function findRaidOrb()
-    -- 1. Cari lewat nama object di Workspace
-    for _, obj in ipairs(Workspace:GetDescendants()) do
+    -- 1. Gunakan GetActiveEvents untuk mendapatkan lokasi spawn boss (PALING AKURAT)
+    local GetActiveEvents = findKnitRemote("BossFishEventService", "GetActiveEvents")
+    if GetActiveEvents then
+        local ok, result = pcall(function() return GetActiveEvents:InvokeServer() end)
+        if ok and type(result) == "table" then
+            for _, eventData in pairs(result) do
+                if type(eventData) == "table" then
+                    local spawnName = eventData.SpawnLocationName or eventData.SpawnLocation
+                    if spawnName and type(spawnName) == "string" and spawnName ~= "" then
+                        -- Cari SpawnLocation di workspace
+                        local spawnPart = workspace:FindFirstChild(spawnName, true)
+                        if spawnPart then
+                            local bp = spawnPart:IsA("BasePart") and spawnPart or spawnPart.PrimaryPart or spawnPart:FindFirstChildWhichIsA("BasePart")
+                            if bp then
+                                print("[F&M Raid] Found spawn via GetActiveEvents: " .. spawnName)
+                                return bp
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2. Cari ProximityPrompt dengan teks "Participate" / "Join" / "Raid"
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then
+            local actText = obj.ActionText:lower()
+            local objText = obj.ObjectText:lower()
+            if actText:find("participate") or actText:find("join") or actText:find("raid") or
+               objText:find("participate") or objText:find("join") or objText:find("raid") or objText:find("boss") then
+                local parent = obj.Parent
+                if parent and parent:IsA("BasePart") then
+                    print("[F&M Raid] Found Raid via ProximityPrompt: " .. parent:GetFullName())
+                    return parent
+                end
+            end
+        end
+    end
+
+    -- 3. Cari lewat nama object di Workspace (kata kunci umum)
+    for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") or obj:IsA("Model") then
             local name = obj.Name:lower()
-            if name:find("raid") or name:find("orb") or name:find("circle") or name:find("portal") or name:find("boss event") or name:find("participate") then
+            if name:find("raid") or name:find("orb") or name:find("portal") or name:find("event") or name:find("participate") then
                 if obj:IsA("BasePart") then
                     return obj
                 else
@@ -253,16 +293,15 @@ local function findRaidOrb()
         end
     end
 
-    -- 2. Cari lewat BillboardGui / TextLabel event raid yang melayang di Workspace (sangat kuat!)
-    -- Penanda text seperti: "Raid will start", "Ready:", "Participate", dll.
-    for _, gui in ipairs(Workspace:GetDescendants()) do
+    -- 4. Cari lewat BillboardGui / TextLabel event
+    for _, gui in ipairs(workspace:GetDescendants()) do
         if gui:IsA("TextLabel") then
             local txt = gui.Text:lower()
-            if txt:find("raid") or txt:find("start in") or txt:find("ready:") or txt:find("participate") or txt:find("min:") then
+            if txt:find("raid") or txt:find("start in") or txt:find("ready:") or txt:find("participate") then
                 local billboard = gui:FindAncestorOfClass("BillboardGui")
                 local adornee = billboard and (billboard.Adornee or billboard.Parent)
                 if adornee and adornee:IsA("BasePart") then
-                    print("[F&M Finder] Found Raid Zone via Billboard text '" .. gui.Text .. "': " .. adornee:GetFullName())
+                    print("[F&M Finder] Found Raid Zone via Billboard: " .. gui.Text)
                     return adornee
                 end
             end
@@ -272,15 +311,45 @@ local function findRaidOrb()
 end
 
 
--- Robust Boss Teleport Logic (Handles model, partial matches, billboards, and circles/orbs)
+-- Robust Boss Teleport Logic
 local function teleportToBossLogic(targetName)
     if not targetName then return false, "No boss name provided." end
-    
+
     local char = LP.Character
     local playerHrp = char and char:FindFirstChild("HumanoidRootPart")
     if not playerHrp then return false, "Player Character/HumanoidRootPart not found." end
 
-    -- 1. Coba cari model persis
+    -- 1. Gunakan GetActiveEvents untuk mendapatkan spawn location (PALING AKURAT)
+    local GetActiveEvents = findKnitRemote("BossFishEventService", "GetActiveEvents")
+    if GetActiveEvents then
+        local ok, result = pcall(function() return GetActiveEvents:InvokeServer() end)
+        if ok and type(result) == "table" then
+            for _, eventData in pairs(result) do
+                if type(eventData) == "table" then
+                    local bossName = eventData.BossName or ""
+                    local spawnName = eventData.SpawnLocationName or eventData.SpawnLocation or ""
+                    -- Cocokkan dengan targetName (case-insensitive, underscore juga diterima)
+                    local lowerTarget = targetName:lower():gsub("_", "")
+                    local lowerBoss = bossName:lower():gsub("_", "")
+                    if lowerBoss:find(lowerTarget, 1, true) or lowerTarget:find(lowerBoss, 1, true) or spawnName ~= "" then
+                        -- Cari SpawnLocation di workspace
+                        if spawnName ~= "" then
+                            local spawnPart = workspace:FindFirstChild(spawnName, true)
+                            if spawnPart then
+                                local bp = spawnPart:IsA("BasePart") and spawnPart or spawnPart.PrimaryPart or spawnPart:FindFirstChildWhichIsA("BasePart")
+                                if bp then
+                                    playerHrp.CFrame = bp.CFrame + Vector3.new(0, 6, 0)
+                                    return true, "Teleported via Event SpawnLocation: " .. spawnName
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2. Cari model persis di workspace
     local bossModel = workspace:FindFirstChild(targetName, true)
     if bossModel then
         local hrp = bossModel:FindFirstChild("HumanoidRootPart") or bossModel:FindFirstChild("Head") or bossModel:FindFirstChildWhichIsA("BasePart")
@@ -290,7 +359,7 @@ local function teleportToBossLogic(targetName)
         end
     end
 
-    -- 2. Coba cari parsial nama (case-insensitive) di Workspace (misal: "Losi Hermit" -> "Losi_Hermit")
+    -- 3. Cari parsial nama (case-insensitive)
     local lowerTarget = targetName:lower():gsub("_", " ")
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") or obj:IsA("Model") then
@@ -299,36 +368,20 @@ local function teleportToBossLogic(targetName)
                 local targetPart = obj:IsA("BasePart") and obj or (obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart"))
                 if targetPart then
                     playerHrp.CFrame = targetPart.CFrame + Vector3.new(0, 6, 0)
-                    return true, "Teleported to partial match object: " .. obj.Name
+                    return true, "Teleported to partial match: " .. obj.Name
                 end
             end
         end
     end
 
-    -- 3. Coba cari lewat BillboardGui / TextLabel di Workspace (penanda teks besar di atas circle)
-    for _, gui in ipairs(workspace:GetDescendants()) do
-        if gui:IsA("TextLabel") then
-            local txt = gui.Text:lower():gsub("_", " ")
-            if txt ~= "" and (txt:find(lowerTarget, 1, true) or lowerTarget:find(txt, 1, true)) then
-                -- Cari part tempat GUI ini menempel
-                local billboard = gui:FindAncestorOfClass("BillboardGui")
-                local adornee = billboard and (billboard.Adornee or billboard.Parent)
-                if adornee and adornee:IsA("BasePart") then
-                    playerHrp.CFrame = adornee.CFrame + Vector3.new(0, 6, 0)
-                    return true, "Teleported to Billboard marker: " .. gui.Text
-                end
-            end
-        end
-    end
-
-    -- 4. Fallback ke Raid Orb / Circle penanda event terdekat
+    -- 4. Fallback ke Raid Orb
     local orb = findRaidOrb()
     if orb then
         playerHrp.CFrame = orb.CFrame + Vector3.new(0, 4, 0)
-        return true, "Teleported to Raid Orb/Circle fallback: " .. orb.Name
+        return true, "Teleported to Raid Orb fallback: " .. orb.Name
     end
 
-    return false, "Could not find boss model, match, marker, or raid orb in Workspace."
+    return false, "Could not find boss or raid location in Workspace. Boss may not have spawned yet."
 end
 
 -- Dump table contents to console helper
@@ -1605,7 +1658,7 @@ end
 -- Auto Join Raid Loop
 task.spawn(function()
     while true do
-        task.wait(2) -- Lebih responsif
+        task.wait(2)
         if autoJoinRaid then
             local orb = findRaidOrb()
             if orb then
@@ -1613,7 +1666,7 @@ task.spawn(function()
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
                 if hrp then
                     hrp.CFrame = orb.CFrame + Vector3.new(0, 3, 0)
-                    task.wait(0.4)
+                    task.wait(0.5)
                     triggerParticipate()
                 end
             end
@@ -1621,14 +1674,69 @@ task.spawn(function()
     end
 end)
 
--- Auto Teleport to Boss Loop
+-- Auto Teleport to Boss Loop (termasuk saat fase Gathering/belum spawn)
 task.spawn(function()
     while true do
-        task.wait(3)
+        task.wait(2)
         if autoTeleportBoss then
-            local targetName = activeBossName or findActiveBossName()
+            local targetName = activeBossName
+            -- Selalu coba detect dulu dari event (akurat untuk semua fase)
+            local GetActiveEvents = findKnitRemote("BossFishEventService", "GetActiveEvents")
+            if GetActiveEvents then
+                local ok, result = pcall(function() return GetActiveEvents:InvokeServer() end)
+                if ok and type(result) == "table" then
+                    for _, eventData in pairs(result) do
+                        if type(eventData) == "table" then
+                            local bossName = eventData.BossName
+                            local spawnName = eventData.SpawnLocationName or eventData.SpawnLocation
+                            local state = eventData.CurrentState or ""
+                            if bossName and bossName ~= "" then
+                                targetName = bossName
+                                activeBossName = bossName
+                                -- Jika Gathering/belum fighting, teleport ke SpawnLocation dulu
+                                if spawnName and spawnName ~= "" then
+                                    local char = LP.Character
+                                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                                    if hrp then
+                                        local spawnPart = workspace:FindFirstChild(spawnName, true)
+                                        if spawnPart then
+                                            local bp = spawnPart:IsA("BasePart") and spawnPart or spawnPart.PrimaryPart or spawnPart:FindFirstChildWhichIsA("BasePart")
+                                            if bp then
+                                                hrp.CFrame = bp.CFrame + Vector3.new(0, 5, 0)
+                                                print("[F&M AutoBoss] Teleported to spawn area: " .. spawnName .. " (state: " .. state .. ")")
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            -- Kalau bossnya sudah ada di workspace, teleport ke boss langsung
             if targetName then
-                teleportToBossLogic(targetName)
+                local bossModel = workspace:FindFirstChild(targetName, true)
+                if bossModel then
+                    local hrp_char = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+                    if hrp_char then
+                        local bossPart = bossModel:FindFirstChild("HumanoidRootPart") or bossModel:FindFirstChild("Head") or bossModel:FindFirstChildWhichIsA("BasePart")
+                        if bossPart then
+                            hrp_char.CFrame = bossPart.CFrame + Vector3.new(0, 6, 0)
+                            print("[F&M AutoBoss] Teleported directly to Boss: " .. targetName)
+                        end
+                    end
+                end
+            elseif not activeBossName then
+                -- Fallback: teleport ke raid orb jika ada
+                local orb = findRaidOrb()
+                if orb then
+                    local char = LP.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        hrp.CFrame = orb.CFrame + Vector3.new(0, 4, 0)
+                        print("[F&M AutoBoss] Fallback teleport to Raid Orb: " .. orb.Name)
+                    end
+                end
             end
         end
     end
