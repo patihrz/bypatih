@@ -865,6 +865,49 @@ TabFishing:CreateButton({
             log("  ReplicatedStorage.PlayerData not found.")
         end
 
+        -- 12. Scan Knit Services/Controllers and their methods
+        log("\n[12] ALL KNIT SERVICES AND METHODS:")
+        local Knit = getKnitClient()
+        if Knit then
+            local services = Knit.Services or (Knit.controllers and Knit.controllers)
+            if services then
+                for name, srv in pairs(services) do
+                    local methodList = {}
+                    pcall(function()
+                        for k, v in pairs(srv) do
+                            if type(v) == "function" then
+                                table.insert(methodList, k)
+                            end
+                        end
+                    end)
+                    log(string.format("  Service: %s | Methods: %s", name, table.concat(methodList, ", ")))
+                end
+            else
+                log("  Knit.Services not found.")
+            end
+        else
+            log("  Knit client not found.")
+        end
+
+        -- 13. Scan Equipped Rod tool attributes/children
+        log("\n[13] EQUIPPED ROD TOOL DETAIL:")
+        local char = LP.Character
+        local equippedTool = char and char:FindFirstChildOfClass("Tool")
+        if equippedTool then
+            log(string.format("  Equipped Tool: %s (Class: %s)", equippedTool.Name, equippedTool.ClassName))
+            for k, v in pairs(equippedTool:GetAttributes()) do
+                log(string.format("    Attribute: %s = %s (%s)", k, tostring(v), typeof(v)))
+            end
+            for _, sub in ipairs(equippedTool:GetDescendants()) do
+                local valStr = ""
+                local valOk, val = pcall(function() return sub.Value end)
+                if valOk then valStr = " = " .. tostring(val) end
+                log(string.format("    Child: %s (Class: %s)%s", sub.Name, sub.ClassName, valStr))
+            end
+        else
+            log("  No equipped tool found in Character.")
+        end
+
         log("\n========================================")
         log("=== END OF DEBUG ===")
         log("========================================")
