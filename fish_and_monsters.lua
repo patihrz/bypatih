@@ -2802,17 +2802,18 @@ local infiniteJump = false
 -- ISLAND TELEPORT (TabPlayer)
 ----------------------------------------------------
 
--- Mapping pulau: displayName, nama Hangout model di workspace, keywords fallback
--- Berdasarkan hasil scan: BambooHangout, SnowHangout, SkeletonHangout, SeabreezeHangout,
---                         IslandDragonHangout, RakitTiresHangout
+-- Mapping pulau berdasarkan hasil scan:
+-- workspace.Location children: Bamboo, SeaBreeze, Lost Whale Island, Iceberg, Volcano Vent, Bora Reef, Cape Town
+-- workspace.Island children: Island_Bambo, Island_Snow, Skeleton_Island, Dragon_Island, Seabreeze, Island_Volcano, Island_Whale, Island_BoraReef
+-- Hangout Models: BambooHangout, SnowHangout, SkeletonHangout, SeabreezeHangout, IslandDragonHangout, IslandWhaleHangout, Rakit_TiresHangout
 local ISLANDS = {
-    { name = "Pulau Bambu",             hangout = "BambooHangout",       hudId = "Bambu",         keys = {"bambu", "bamboo"} },
-    { name = "Pulau Iceberg",           hangout = "SnowHangout",         hudId = "Iceberg",       keys = {"iceberg", "snow", "ice"} },
-    { name = "Pulau Paus yang Hilang",  hangout = "SeabreezeHangout",    hudId = "Paus",          keys = {"paus", "whale", "seabreeze", "hilang"} },
-    { name = "Pulau Terumbu Bora",      hangout = "SkeletonHangout",     hudId = "Terumbu",       keys = {"terumbu", "bora", "reef", "skeleton"} },
-    { name = "Ventilasi Gunung Berapi", hangout = "IslandDragonHangout", hudId = "Berapi",        keys = {"ventilasi", "berapi", "volcano", "dragon"} },
-    { name = "Cape Town",               hangout = "RakitTiresHangout",   hudId = "CapeTown",      keys = {"cape", "rakit", "tires", "capetown"} },
-    { name = "Base / Fishing Village",  hangout = "Fishing_Village",     hudId = "Base",          keys = {"base", "fishing", "village", "lobby"} },
+    { name = "Pulau Bambu",             locationId = "Bamboo",           islandModel = "Island_Bambo",      hangout = "BambooHangout" },
+    { name = "Pulau Iceberg",           locationId = "Iceberg",          islandModel = "Island_Snow",       hangout = "SnowHangout" },
+    { name = "Pulau Paus yang Hilang",  locationId = "Lost Whale Island", islandModel = "Island_Whale",     hangout = "IslandWhaleHangout" },
+    { name = "Pulau Terumbu Bora",      locationId = "Bora Reef",        islandModel = "Island_BoraReef",   hangout = "SkeletonHangout" },
+    { name = "Ventilasi Gunung Berapi", locationId = "Volcano Vent",     islandModel = "Island_Volcano",    hangout = "IslandDragonHangout" },
+    { name = "Cape Town",               locationId = "Cape Town",        islandModel = "Seabreeze",         hangout = "Rakit_TiresHangout" },
+    { name = "Seabreeze / Base",        locationId = "SeaBreeze",        islandModel = "Seabreeze",         hangout = "SeabreezeHangout" },
 }
 
 -- Cache SpawnService remote
@@ -2842,93 +2843,78 @@ end
 local function teleportToIsland(islandData)
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false, "Character tidak ditemukan!" end
 
-    -- 1. Coba RequestHudTeleport dari SpawnService (PALING MULUS - server handle)
+    -- 1. Coba RequestHudTeleport dari SpawnService dengan locationId EXACT
+    -- Parameter: nama folder di workspace.Location (contoh: "Bamboo", "Iceberg", "Lost Whale Island")
     local hudRemote = getHudTeleportRemote()
     if hudRemote then
-        -- Coba berbagai format parameter
-        local paramFormats = {
-            islandData.hudId,       -- "Bambu"
-            islandData.hangout,     -- "BambooHangout"
-            islandData.name,        -- "Pulau Bambu"
-        }
-        for _, param in ipairs(paramFormats) do
-            local ok, result = pcall(function()
-                if hudRemote:IsA("RemoteFunction") then
-                    return hudRemote:InvokeServer(param)
-                else
-                    hudRemote:FireServer(param)
-                    return true
-                end
-            end)
-            if ok then
-                print("[F&M Island] RequestHudTeleport fired with param: " .. tostring(param))
-                return true, "Teleport via HudTeleport: " .. islandData.name .. " (param: " .. tostring(param) .. ")"
+        local ok, result = pcall(function()
+            if hudRemote:IsA("RemoteFunction") then
+                return hudRemote:InvokeServer(islandData.locationId)
+            else
+                hudRemote:FireServer(islandData.locationId)
+                return true
+            end
+        end)
+        if ok then
+            print("[F&M Island] RequestHudTeleport OK -> " .. islandData.locationId)
+            return true, "✅ Teleport via HudTeleport: " .. islandData.name
+        else
+            warn("[F&M Island] HudTeleport error: " .. tostring(result))
+        end
+    end
+
+    -- 2. Cari posisi di workspace.Location folder (lokasi spawn island)
+    local locFolder = workspace:FindFirstChild("Location")
+    if locFolder then
+        local locChild = locFolder:FindFirstChild(islandData.locationId)
+        if locChild then
+            local locPart = locChild:IsA("BasePart") and locChild
+                or locChild.PrimaryPart
+                or locChild:FindFirstChildWhichIsA("BasePart")
+            if locPart then
+                hrp.CFrame = CFrame.new(locPart.Position + Vector3.new(0, 8, 0))
+                print("[F&M Island] Teleport via Location folder: " .. islandData.locationId)
+                return true, "✅ Teleport ke " .. islandData.name .. " (via Location folder)"
             end
         end
     end
 
-    -- 2. Teleport langsung ke Hangout model di workspace
-    local hangoutModel = workspace:FindFirstChild(islandData.hangout, true)
-        or workspace:FindFirstChild("Island") and workspace:FindFirstChild("Island"):FindFirstChild(islandData.hangout, true)
-    if hangoutModel then
-        if hrp then
+    -- 3. Cari Island model di workspace.Island
+    local islandFolder = workspace:FindFirstChild("Island")
+    if islandFolder and islandData.islandModel then
+        local islandModel = islandFolder:FindFirstChild(islandData.islandModel, true)
+        if islandModel then
+            local targetPart = islandModel:IsA("BasePart") and islandModel
+                or islandModel.PrimaryPart
+                or islandModel:FindFirstChildWhichIsA("BasePart")
+            if targetPart then
+                hrp.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 8, 0))
+                print("[F&M Island] Teleport via Island model: " .. islandData.islandModel)
+                return true, "✅ Teleport ke " .. islandData.name .. " (via Island model)"
+            end
+        end
+    end
+
+    -- 4. Cari Hangout model di workspace (root level)
+    if islandData.hangout then
+        local hangoutModel = workspace:FindFirstChild(islandData.hangout)
+        if hangoutModel then
             local targetPart = hangoutModel:IsA("BasePart") and hangoutModel
                 or hangoutModel.PrimaryPart
                 or hangoutModel:FindFirstChildWhichIsA("BasePart")
             if targetPart then
                 hrp.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 8, 0))
-                print("[F&M Island] Teleport to Hangout model: " .. islandData.hangout)
-                return true, "Teleport ke " .. islandData.name .. " (via Hangout model)"
+                print("[F&M Island] Teleport via Hangout: " .. islandData.hangout)
+                return true, "✅ Teleport ke " .. islandData.name .. " (via Hangout)"
             end
         end
     end
 
-    -- 3. Scan workspace.Island folder untuk anak-anaknya
-    local islandFolder = workspace:FindFirstChild("Island")
-    if islandFolder then
-        for _, kw in ipairs(islandData.keys) do
-            for _, child in ipairs(islandFolder:GetDescendants()) do
-                if (child:IsA("BasePart") or child:IsA("Model")) and child.Name:lower():find(kw, 1, true) then
-                    local targetPart = child:IsA("BasePart") and child or (child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart"))
-                    if targetPart and hrp then
-                        hrp.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 8, 0))
-                        return true, "Teleport via Island folder: " .. child.Name
-                    end
-                end
-            end
-        end
-    end
-
-    -- 4. Klik tombol GUI island selector jika terbuka
-    for _, gui in ipairs(LP.PlayerGui:GetDescendants()) do
-        if (gui:IsA("TextButton") or gui:IsA("ImageButton")) and isGuiVisible(gui) then
-            local fullName = gui:GetFullName():lower()
-            if not fullName:find("rayfield") then
-                local text = ""
-                pcall(function() text = gui.Text:lower() end)
-                local name = gui.Name:lower()
-                for _, kw in ipairs(islandData.keys) do
-                    if text:find(kw, 1, true) or name:find(kw, 1, true) then
-                        print("[F&M Island] GUI click: " .. gui:GetFullName())
-                        pcall(function()
-                            if typeof(firesignal) == "function" then
-                                firesignal(gui.MouseButton1Click)
-                                firesignal(gui.Activated)
-                            else
-                                gui.MouseButton1Click:Fire()
-                                gui.Activated:Fire()
-                            end
-                        end)
-                        return true, "GUI click: " .. islandData.name
-                    end
-                end
-            end
-        end
-    end
-
-    return false, "Gagal: " .. islandData.name .. ". Cek console untuk detail!"
+    return false, "❌ Gagal: " .. islandData.name .. " - semua metode gagal!"
 end
+
 
 TabPlayer:CreateSection("Island Teleport")
 
@@ -3138,7 +3124,7 @@ local function getOpenChestRemote()
 end
 
 TabPlayer:CreateButton({
-    Name = "Open All Chests (Scan Map)",
+    Name = "🎁 Open All Chests (Current Island)",
     Callback = function()
         local remote = getOpenChestRemote()
         if not remote then
@@ -3174,13 +3160,116 @@ TabPlayer:CreateButton({
                 failed = failed + 1
                 print("[F&M Chest] Failed: " .. chestName .. " | err: " .. tostring(result))
             end
-            task.wait(0.3) -- Delay antar chest agar tidak rate-limit
+            task.wait(0.3)
         end
 
         local msg = "Selesai! Opened: " .. opened
         if failed > 0 then msg = msg .. " | Failed: " .. failed end
         Rayfield:Notify({Title = "Chest Done!", Content = msg, Duration = 6})
         print("[F&M Chest] " .. msg)
+    end
+})
+
+TabPlayer:CreateButton({
+    Name = "🏆 Open All Chests - ALL ISLANDS (Auto Travel)",
+    Callback = function()
+        local remote = getOpenChestRemote()
+        if not remote then
+            Rayfield:Notify({Title = "Chest Error", Content = "RequestOpenChest remote tidak ditemukan!", Duration = 4})
+            return
+        end
+
+        task.spawn(function()
+            local totalOpened = 0
+            local totalFailed = 0
+
+            Rayfield:Notify({
+                Title = "🏆 All Islands Chest Run!",
+                Content = "Mulai keliling " .. #ISLANDS .. " pulau untuk klaim chest...",
+                Duration = 5
+            })
+
+            for islandIdx, island in ipairs(ISLANDS) do
+                print("[F&M Chest ALL] Berpindah ke: " .. island.name)
+
+                -- Teleport ke pulau
+                local tpOk, tpMsg = teleportToIsland(island)
+                print("[F&M Chest ALL] Teleport result: " .. tostring(tpMsg))
+
+                -- Tunggu map load
+                task.wait(3)
+
+                -- Scan chest di pulau ini (prioritas: TreasureSpawns folder)
+                local chestList = {}
+                local treasureSpawns = workspace:FindFirstChild("TreasureSpawns")
+                if treasureSpawns then
+                    -- Island1..Island6 dalam TreasureSpawns
+                    local islandFolder = treasureSpawns:FindFirstChild("Island" .. islandIdx)
+                    if islandFolder then
+                        for _, child in ipairs(islandFolder:GetDescendants()) do
+                            if child:IsA("Attachment") and child.Name:match("^CHEST_") then
+                                table.insert(chestList, child.Name)
+                            end
+                        end
+                    end
+                end
+
+                -- Juga scan seluruh workspace attachment CHEST_ di area dekat player
+                local charPos = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+                if charPos then
+                    for _, att in ipairs(workspace:GetDescendants()) do
+                        if att:IsA("Attachment") and att.Name:match("^CHEST_") then
+                            local attParent = att.Parent
+                            if attParent and attParent:IsA("BasePart") then
+                                local dist = (attParent.Position - charPos.Position).Magnitude
+                                if dist < 1500 then -- radius per island
+                                    -- Avoid duplicate
+                                    local found = false
+                                    for _, existing in ipairs(chestList) do
+                                        if existing == att.Name then found = true; break end
+                                    end
+                                    if not found then
+                                        table.insert(chestList, att.Name)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
+                if #chestList > 0 then
+                    print("[F&M Chest ALL] " .. island.name .. ": ditemukan " .. #chestList .. " chest")
+                    for _, chestName in ipairs(chestList) do
+                        local ok, result = pcall(function()
+                            return remote:InvokeServer(chestName)
+                        end)
+                        if ok then
+                            totalOpened = totalOpened + 1
+                            print("[F&M Chest ALL] ✅ Opened: " .. chestName)
+                        else
+                            totalFailed = totalFailed + 1
+                            print("[F&M Chest ALL] ❌ Failed: " .. chestName .. " | " .. tostring(result))
+                        end
+                        task.wait(0.35)
+                    end
+                else
+                    print("[F&M Chest ALL] " .. island.name .. ": tidak ada chest ditemukan")
+                end
+
+                Rayfield:Notify({
+                    Title = "Island " .. islandIdx .. "/" .. #ISLANDS,
+                    Content = island.name .. " selesai! Total opened: " .. totalOpened,
+                    Duration = 3
+                })
+
+                task.wait(1)
+            end
+
+            local finalMsg = "Selesai semua pulau! Total Opened: " .. totalOpened
+            if totalFailed > 0 then finalMsg = finalMsg .. " | Failed: " .. totalFailed end
+            Rayfield:Notify({Title = "✅ All Islands Done!", Content = finalMsg, Duration = 8})
+            print("[F&M Chest ALL] " .. finalMsg)
+        end)
     end
 })
 
@@ -3192,11 +3281,24 @@ TabPlayer:CreateButton({
         for i, name in ipairs(chests) do
             print("  [" .. i .. "] " .. name)
         end
+        -- Also print TreasureSpawns
+        local ts = workspace:FindFirstChild("TreasureSpawns")
+        if ts then
+            print("[F&M Chest] TreasureSpawns folders:")
+            for _, child in ipairs(ts:GetChildren()) do
+                local count = 0
+                for _, att in ipairs(child:GetDescendants()) do
+                    if att:IsA("Attachment") and att.Name:match("^CHEST_") then count = count + 1 end
+                end
+                print("  " .. child.Name .. ": " .. count .. " chests")
+            end
+        end
         Rayfield:Notify({
             Title = "Chest Scan",
             Content = "Ditemukan " .. #chests .. " chest. Lihat console untuk detail.",
             Duration = 4
         })
+
     end
 })
 
