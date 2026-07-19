@@ -3390,13 +3390,12 @@ TabPlayer:CreateButton({
                     local islandFolder = treasureSpawns and treasureSpawns:FindFirstChild("Island" .. islandIdx)
 
                     if islandFolder then
-                        -- Ambil spawner chest (Attachment yang bukan milik NPC / Rig)
+                        -- Ambil spawner chest (HANYA Attachment bernama CHEST_ atau TREASURE_)
                         local spawnPoints = {}
                         for _, child in ipairs(islandFolder:GetDescendants()) do
-                            if child:IsA("Attachment") and not isNPCOrPlayer(child) then
+                            if child:IsA("Attachment") then
                                 local nameLower = child.Name:lower()
-                                -- Abaikan standard rig attachments (waistattachment, neckattachment, dll)
-                                if not nameLower:find("attachment") or nameLower:find("chest") or nameLower:find("treasure") then
+                                if nameLower:find("chest") or nameLower:find("treasure") or nameLower:match("^chest_") then
                                     table.insert(spawnPoints, child)
                                 end
                             end
@@ -3408,28 +3407,31 @@ TabPlayer:CreateButton({
                         for _, spawnPoint in ipairs(spawnPoints) do
                             local pos = spawnPoint.WorldPosition
                             
-                            -- Teleport dan anchor player sejenak agar map ter-stream dengan sempurna
+                            -- Teleport dan anchor player sejenak di atas titik spawner agar map ter-stream
                             hrp.Anchored = true
-                            hrp.CFrame = CFrame.new(pos + Vector3.new(0, 1.5, 0))
+                            hrp.CFrame = CFrame.new(pos + Vector3.new(0, 5, 0))
                             task.wait(0.4) -- Beri waktu asset untuk stream-in
-
-                            -- SANGAT PENTING: Unanchor player sebelum interaksi prompt!
-                            -- Roblox mendisable ProximityPrompt jika player dalam keadaan Anchored.
-                            hrp.Anchored = false
-                            task.wait(0.05)
 
                             -- Scan ProximityPrompt di dekat player (radius 30 studs)
                             local prompts = getNearbyChestPrompts(30)
                             print(string.format("[F&M Chest Debug] Teleported to %s, found %d prompts", spawnPoint.Name, #prompts))
                             
                             for _, prompt in ipairs(prompts) do
-                                firePrompt(prompt)
-                                totalOpened = totalOpened + 1
-                                print("[F&M Chest ALL] ✅ Mengaktifkan ProximityPrompt: " .. prompt.Parent.Name)
-                                task.wait((prompt.HoldDuration or 0.2) + 0.3)
+                                local parent = prompt.Parent
+                                if parent and parent:IsA("BasePart") then
+                                    -- Teleport langsung nempel ke petinya agar jarak sedekat mungkin
+                                    hrp.CFrame = CFrame.new(parent.Position + Vector3.new(0, 1.5, 0))
+                                    hrp.Anchored = false -- Unanchor sebelum interaksi agar prompt aktif
+                                    task.wait(0.1)
+
+                                    firePrompt(prompt)
+                                    totalOpened = totalOpened + 1
+                                    print("[F&M Chest ALL] ✅ Mengaktifkan ProximityPrompt: " .. parent.Name)
+                                    task.wait((prompt.HoldDuration or 0.2) + 0.3)
+                                end
                             end
 
-                            -- Cari CHEST_ remote target di dekat player
+                            -- Cari CHEST_ remote target di dekat player sebagai backup
                             for _, desc in ipairs(workspace:GetDescendants()) do
                                 if desc:IsA("Attachment") and desc.Name:match("^CHEST_") then
                                     local dist = (desc.WorldPosition - hrp.Position).Magnitude
@@ -3441,6 +3443,9 @@ TabPlayer:CreateButton({
                                     end
                                 end
                             end
+
+                            -- Pastikan unanchor sebelum pindah ke spawner berikutnya
+                            hrp.Anchored = false
                         end
                     else
                         print("[F&M Chest ALL] Folder TreasureSpawns.Island" .. islandIdx .. " tidak ditemukan!")
@@ -3454,6 +3459,7 @@ TabPlayer:CreateButton({
                     task.wait(1.5)
                 end
             end
+
 
             Rayfield:Notify({
                 Title = "✅ Chest Run Selesai!",
