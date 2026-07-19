@@ -59,6 +59,25 @@ local autoCatchAssist = false
 local rodNameInput = "Fishingrod_Losi"
 local floaterNameInput = "Floater_Doll"
 local devSearchText = ""
+
+local lastEquippedFloater = "Floater_Doll"
+local lastEquippedRod = "Fishingrod_Losi"
+
+-- Listen to active fishing attributes to auto-detect floater and rod immediately
+pcall(function()
+    LP:GetAttributeChangedSignal("FishingCastFloaterId"):Connect(function()
+        local val = LP:GetAttribute("FishingCastFloaterId")
+        if val and val ~= "" then
+            lastEquippedFloater = val
+        end
+    end)
+    LP:GetAttributeChangedSignal("FishingCastRodId"):Connect(function()
+        local val = LP:GetAttribute("FishingCastRodId")
+        if val and val ~= "" then
+            lastEquippedRod = val
+        end
+    end)
+end)
 local hideFishingMinigameUI = false
 
 local autoJoinRaid = false
@@ -1034,7 +1053,7 @@ local function runBlatantFishingCycle()
 
     equipRod()
     local rod = getRod()
-    local activeRodName = rod and rod.Name or rodNameInput
+    local activeRodName = rod and rod.Name or (lastEquippedRod ~= "Fishingrod_Losi" and lastEquippedRod) or rodNameInput
     bLog("Active Rod: " .. tostring(activeRodName))
 
     local activeFloaterName = floaterNameInput
@@ -1043,6 +1062,9 @@ local function runBlatantFishingCycle()
             activeFloaterName = v
             break
         end
+    end
+    if activeFloaterName == "Floater_Doll" and lastEquippedFloater ~= "Floater_Doll" then
+        activeFloaterName = lastEquippedFloater
     end
     bLog("Active Floater: " .. tostring(activeFloaterName))
 
@@ -1194,9 +1216,17 @@ local function runBlatantFishingCycle()
     while not caughtFishName and (os.clock() - startTap) < 3.5 do
         tapCount = tapCount + 1
         pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
-        task.wait(0.04) -- 40ms delay, super cepat tapi 100% didaftarkan server
+        task.wait(0.08) -- 80ms delay, sangat aman dan tidak terdeteksi anti-cheat
     end
     bLog("Tapping loop finished. Taps sent: " .. tapCount .. " | caughtFishName: " .. tostring(caughtFishName))
+
+    -- SAFETY anti-cheat: Pastikan durasi minigame minimal 1.4 detik sebelum claim!
+    local elapsed = os.clock() - startTap
+    if elapsed < 1.4 then
+        local remainder = 1.4 - elapsed
+        bLog(string.format("Safety buffer: yielding for %.2f seconds to prevent speed-ban", remainder))
+        task.wait(remainder)
+    end
 
     -- Tunggu max 1.0 detik untuk konfirmasi penangkapan dari server jika belum diset
     if not caughtFishName then
@@ -1222,15 +1252,20 @@ local function runBlatantFishingCycle()
     return true
 end
 
--- Blatant Fishing Loop Thread (Jeda minimal antar siklus)
+-- Blatant Fishing Loop Thread (Jeda minimal antar siklus dengan Pengaman Manusiawi)
 task.spawn(function()
     while true do
-        task.wait(0.05)
+        task.wait(0.1)
         if autoBlatantFishing then
             local ok, err = pcall(runBlatantFishingCycle)
             if not ok then
                 bLog("LOOP ERROR (V1): " .. tostring(err))
-                task.wait(0.5)
+                task.wait(1.0)
+            else
+                -- Jeda acak antar siklus mancing biar keliatan seperti manusia asli (1.5s - 2.5s)
+                local randomDelay = math.random(15, 25) / 10
+                bLog(string.format("Safety delay between cycles: %.2f seconds", randomDelay))
+                task.wait(randomDelay)
             end
         end
     end
@@ -1243,7 +1278,12 @@ task.spawn(function()
         if autoBlatantFishingV2 then
             local ok, err = pcall(runBlatantFishingCycle)
             if not ok then
-                task.wait(0.5)
+                task.wait(1.0)
+            else
+                -- Jeda acak untuk V2 juga
+                local randomDelay = math.random(15, 25) / 10
+                bLog(string.format("Safety delay (V2) between cycles: %.2f seconds", randomDelay))
+                task.wait(randomDelay)
             end
         end
     end
