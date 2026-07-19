@@ -806,6 +806,65 @@ TabFishing:CreateButton({
             log("  ReplicatedStorage.ActiveSpawns.Floaters not found.")
         end
 
+        -- 10. Scan LocalPlayer.PlayerData recursively
+        log("\n[10] LOCALPLAYER.PLAYERDATA RECURSIVE DUMP:")
+        local pData = LP:FindFirstChild("PlayerData")
+        if pData then
+            local function dumpDescendants(parent, indent)
+                pcall(function()
+                    for _, child in ipairs(parent:GetChildren()) do
+                        local valStr = ""
+                        local valOk, val = pcall(function() return child.Value end)
+                        if valOk then valStr = " = " .. tostring(val) end
+                        
+                        -- Print attributes if any
+                        local attrList = {}
+                        pcall(function()
+                            for k, v in pairs(child:GetAttributes()) do
+                                table.insert(attrList, k .. "=" .. tostring(v))
+                            end
+                        end)
+                        local attrStr = #attrList > 0 and " [Attrs: " .. table.concat(attrList, ", ") .. "]" or ""
+                        
+                        log(string.format("%s%s (Class: %s)%s%s", indent, child.Name, child.ClassName, valStr, attrStr))
+                        dumpDescendants(child, indent .. "  ")
+                    end
+                end)
+            end
+            dumpDescendants(pData, "  ")
+        else
+            log("  LocalPlayer.PlayerData not found.")
+        end
+
+        -- 11. Scan ReplicatedStorage.PlayerData player subfolder
+        log("\n[11] REPLICATEDSTORAGE.PLAYERDATA DUMP:")
+        local rsPlayerData = game:GetService("ReplicatedStorage"):FindFirstChild("PlayerData")
+        if rsPlayerData then
+            local myRSFolder = rsPlayerData:FindFirstChild(LP.Name) or rsPlayerData:FindFirstChild(tostring(LP.UserId))
+            if myRSFolder then
+                log("  Found my folder: " .. myRSFolder:GetFullName())
+                local function dumpRSDescendants(parent, indent)
+                    pcall(function()
+                        for _, child in ipairs(parent:GetChildren()) do
+                            local valStr = ""
+                            local valOk, val = pcall(function() return child.Value end)
+                            if valOk then valStr = " = " .. tostring(val) end
+                            log(string.format("%s%s (Class: %s)%s", indent, child.Name, child.ClassName, valStr))
+                            dumpRSDescendants(child, indent .. "  ")
+                        end
+                    end)
+                end
+                dumpRSDescendants(myRSFolder, "    ")
+            else
+                log("  My subfolder not found in ReplicatedStorage.PlayerData. Printing all children:")
+                for _, child in ipairs(rsPlayerData:GetChildren()) do
+                    log(string.format("    Child: %s (Class: %s)", child.Name, child.ClassName))
+                end
+            end
+        else
+            log("  ReplicatedStorage.PlayerData not found.")
+        end
+
         log("\n========================================")
         log("=== END OF DEBUG ===")
         log("========================================")
