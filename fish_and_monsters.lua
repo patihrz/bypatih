@@ -740,6 +740,45 @@ TabFishing:CreateButton({
             end
         end
 
+        -- Search for the string "WolfFloater" in LocalPlayer, PlayerGui, and ReplicatedStorage to locate active/equipped floater storage
+        log("\n[7] FLOATER VALUE SCAN (SEARCHING FOR EQUIPPED FLOATER 'WolfFloater'):")
+        local foundLocations = {}
+        
+        local function scanDescendants(parent, pathStr)
+            pcall(function()
+                for _, desc in ipairs(parent:GetDescendants()) do
+                    -- Check value properties
+                    local ok, val = pcall(function() return desc.Value end)
+                    if ok and typeof(val) == "string" and val == "WolfFloater" then
+                        table.insert(foundLocations, string.format("  Object Value: %s (Class: %s) = 'WolfFloater'", desc:GetFullName(), desc.ClassName))
+                    end
+                    -- Check name
+                    if desc.Name == "WolfFloater" then
+                        table.insert(foundLocations, string.format("  Object Name: %s (Class: %s)", desc:GetFullName(), desc.ClassName))
+                    end
+                    -- Check attributes
+                    pcall(function()
+                        for attrName, attrVal in pairs(desc:GetAttributes()) do
+                            if typeof(attrVal) == "string" and attrVal == "WolfFloater" then
+                                table.insert(foundLocations, string.format("  Attribute of %s: %s = 'WolfFloater'", desc:GetFullName(), attrName))
+                            end
+                        end
+                    end)
+                end
+            end)
+        end
+
+        scanDescendants(LP, "LocalPlayer")
+        scanDescendants(game:GetService("ReplicatedStorage"), "ReplicatedStorage")
+        
+        if #foundLocations == 0 then
+            log("  No occurrences of 'WolfFloater' found in LocalPlayer or ReplicatedStorage (except when active fishing attributes are set).")
+        else
+            for _, loc in ipairs(foundLocations) do
+                log(loc)
+            end
+        end
+
         log("\n========================================")
         log("=== END OF DEBUG ===")
         log("========================================")
