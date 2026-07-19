@@ -718,8 +718,16 @@ local function runBlatantFishingCycle()
     end
 
     equipRod()
-    local activeRodName     = LP:GetAttribute("FishingCastRodId") or rodNameInput
-    local activeFloaterName = LP:GetAttribute("FishingCastFloaterId") or floaterNameInput
+    local rod = getRod()
+    local activeRodName = rod and rod.Name or rodNameInput
+
+    local activeFloaterName = floaterNameInput
+    for k, v in pairs(LP:GetAttributes()) do
+        if type(v) == "string" and (k:lower():find("floater") or v:lower():find("floater")) and v ~= "" then
+            activeFloaterName = v
+            break
+        end
+    end
 
     -- Reset state & start new session
     pcall(function() StopFishing:InvokeServer() end)
