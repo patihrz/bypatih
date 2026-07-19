@@ -3474,55 +3474,110 @@ TabPlayer:CreateButton({
 TabPlayer:CreateButton({
     Name = "[DEBUG] Scan Chest & Remotes",
     Callback = function()
-        print("=== CHEST DEBUG SCAN ===")
+        print("========================================")
+        print("=== DETAILED CHEST & PROMPT DEBUG ===")
+        print("========================================")
 
-        -- 1. CHEST_ attachments di workspace
-        local chests = findAllChestAttachments()
-        print("[1] Total CHEST_ attachment: " .. #chests)
-        for i, name in ipairs(chests) do
-            print("    [" .. i .. "] " .. name)
+        -- 1. Scan semua ProximityPrompt di seluruh workspace
+        print("[1] PROXIMITY PROMPTS IN WORKSPACE:")
+        local promptCount = 0
+        for _, desc in ipairs(workspace:GetDescendants()) do
+            if desc:IsA("ProximityPrompt") then
+                promptCount = promptCount + 1
+                local parent = desc.Parent
+                local parentName = parent and parent.Name or "No Parent"
+                local parentClass = parent and parent.ClassName or "None"
+                local parentPos = "N/A"
+                if parent and parent:IsA("BasePart") then
+                    parentPos = tostring(parent.Position)
+                elseif parent and parent:IsA("Attachment") then
+                    parentPos = tostring(parent.WorldPosition)
+                end
+                
+                print(string.format("  [%d] Prompt Name: %s | Parent: %s (%s) @ %s", promptCount, desc.Name, parentName, parentClass, parentPos))
+                print(string.format("      ActionText: '%s' | ObjectText: '%s'", desc.ActionText, desc.ObjectText))
+                print(string.format("      Enabled: %s | MaxDistance: %s | HoldDuration: %s", tostring(desc.Enabled), tostring(desc.MaxActivationDistance), tostring(desc.HoldDuration)))
+                print(string.format("      Full Path: %s", desc:GetFullName()))
+            end
+        end
+        if promptCount == 0 then
+            print("  (Tidak ditemukan ProximityPrompt apapun di workspace!)")
         end
 
-        -- 2. Isi TreasureSpawns (SEMUA tipe, bukan hanya CHEST_)
+        -- 2. Scan spawner di workspace.TreasureSpawns
         local ts = workspace:FindFirstChild("TreasureSpawns")
         if ts then
-            print("[2] TreasureSpawns folder isi:")
+            print("\n[2] TREASURE SPAWNS DIRECTORY DETAILS:")
             for _, islandF in ipairs(ts:GetChildren()) do
                 print("  Folder: " .. islandF.Name)
-                local childCount = 0
-                for _, child in ipairs(islandF:GetChildren()) do
-                    print("    - " .. child.ClassName .. ": " .. child.Name)
-                    childCount = childCount + 1
-                    if childCount >= 10 then print("    ... (truncated)"); break end
+                local items = islandF:GetDescendants()
+                print("    Total descendants: " .. #items)
+                for idx, child in ipairs(items) do
+                    local pos = "N/A"
+                    if child:IsA("BasePart") then
+                        pos = tostring(child.Position)
+                    elseif child:IsA("Attachment") then
+                        pos = tostring(child.WorldPosition)
+                    end
+                    print(string.format("    - [%d] %s: %s | Pos: %s | Path: %s", idx, child.ClassName, child.Name, pos, child:GetFullName()))
+                    if idx >= 20 then
+                        print("    ... (truncated remaining descendants for readability)")
+                        break
+                    end
                 end
-                if childCount == 0 then print("    (kosong)") end
             end
         else
-            print("[2] TreasureSpawns: TIDAK DITEMUKAN di workspace!")
+            print("\n[2] TreasureSpawns: TIDAK DITEMUKAN di workspace!")
         end
 
-        -- 3. Scan semua RemoteFunction/Event yang mengandung chest/treasure/open
-        print("[3] Chest-related remotes di ReplicatedStorage:")
-        local found = 0
+        -- 3. Scan semua model/part/attachment yang mengandung 'chest' atau 'treasure'
+        print("\n[3] CHEST/TREASURE INSTANCES IN WORKSPACE:")
+        local instanceCount = 0
+        for _, desc in ipairs(workspace:GetDescendants()) do
+            local nm = desc.Name:lower()
+            if nm:find("chest") or nm:find("treasure") or nm:find("peti") then
+                instanceCount = instanceCount + 1
+                local pos = "N/A"
+                if desc:IsA("BasePart") then
+                    pos = tostring(desc.Position)
+                elseif desc:IsA("Attachment") then
+                    pos = tostring(desc.WorldPosition)
+                end
+                print(string.format("  [%d] %s: %s | Pos: %s | Path: %s", instanceCount, desc.ClassName, desc.Name, pos, desc:GetFullName()))
+            end
+        end
+        if instanceCount == 0 then
+            print("  (Tidak ditemukan model/part/attachment dengan keyword chest/treasure!)")
+        end
+
+        -- 4. Scan semua remote terkait chest di ReplicatedStorage
+        print("\n[4] CHEST REMOTES SCAN:")
+        local remoteCount = 0
         for _, obj in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
             if obj:IsA("RemoteFunction") or obj:IsA("RemoteEvent") then
                 local nm = obj.Name:lower()
                 if nm:find("chest") or nm:find("treasure") or nm:find("open") or nm:find("claim") or nm:find("loot") then
-                    print("    " .. obj.ClassName .. ": " .. obj.Name .. " => " .. obj:GetFullName())
-                    found = found + 1
+                    remoteCount = remoteCount + 1
+                    print(string.format("  [%d] %s: %s | Path: %s", remoteCount, obj.ClassName, obj.Name, obj:GetFullName()))
                 end
             end
         end
-        if found == 0 then print("    (tidak ada remote chest ditemukan!)") end
+        if remoteCount == 0 then
+            print("  (Tidak ada remote chest ditemukan!)")
+        end
 
-        print("=== END SCAN ===")
+        print("========================================")
+        print("=== END DEBUG SCAN ===")
+        print("========================================")
+
         Rayfield:Notify({
-            Title = "Chest Debug Done!",
-            Content = "CHEST_ att: " .. #chests .. " | Remote: " .. found .. " | Cek F9!",
-            Duration = 5
+            Title = "Detailed Scan Done!",
+            Content = "Scan selesai! Lihat log lengkap di Developer Console (F9).",
+            Duration = 6
         })
     end
 })
+
 
 
 ----------------------------------------------------
