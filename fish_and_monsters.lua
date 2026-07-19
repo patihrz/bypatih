@@ -3389,88 +3389,80 @@ TabPlayer:CreateButton({
                 return
             end
 
-            Rayfield:Notify({
-                Title = "🏆 All Islands Chest Run!",
-                Content = "Memulai keliling 7 pulau untuk mengosongkan semua chest...",
-                Duration = 5
-            })
-
-            pcall(updateCoordsFromWorkspace)
-
-            for islandIdx, island in ipairs(ISLANDS) do
-                if islandIdx <= 6 then
-                    print("[F&M Chest ALL] Menuju pulau: " .. island.name)
-                    
-                    -- Teleport ke pulau
-                    local tpOk, tpMsg = teleportToIsland(island)
-                    task.wait(2.5) -- Tunggu loading map & streaming
-
-                    -- Scan all Chest_Local prompts currently visible (max distance 600 studs dari base pulau)
-                    local islandPrompts = {}
-                    for _, desc in ipairs(workspace:GetDescendants()) do
-                        if desc:IsA("ProximityPrompt") and isChestPrompt(desc) then
-                            local pos = getPromptPosition(desc)
-                            if pos then
-                                local dist = (pos - island.coords).Magnitude
-                                if dist <= 600 then
-                                    table.insert(islandPrompts, desc)
-                                end
-                            end
+            -- Cari semua Chest_Local aktif di game
+            local activeChests = {}
+            local folder = workspace:FindFirstChild("LocalTreasures")
+            if folder then
+                for _, chest in ipairs(folder:GetChildren()) do
+                    if chest.Name == "Chest_Local" then
+                        local prompt = chest:FindFirstChildOfClass("ProximityPrompt")
+                        if prompt and isChestPrompt(prompt) then
+                            table.insert(activeChests, prompt)
                         end
                     end
-
-                    print(string.format("[F&M Chest ALL] Pulau %s: Ditemukan %d chest aktif di sekitar.", island.name, #islandPrompts))
-
-                    -- Teleport langsung ke setiap chest aktif
-                    for _, prompt in ipairs(islandPrompts) do
-                        local pos = getPromptPosition(prompt)
-                        if pos then
-                            -- TELEPORT STABILIZER (Agar server mencatat posisi player secara valid)
-                            hrp.Anchored = true
-                            for i = 1, 4 do
-                                hrp.CFrame = CFrame.new(pos + Vector3.new(0, 1.5, 0))
-                                hrp.AssemblyLinearVelocity = Vector3.zero
-                                task.wait(0.08)
-                            end
-                            task.wait(0.1)
-
-                            -- SANGAT PENTING: Unanchor player sebelum interaksi prompt!
-                            hrp.Anchored = false
-                            task.wait(0.05)
-
-                            -- Fire prompt!
-                            firePrompt(prompt)
-                            totalOpened = totalOpened + 1
-                            print("[F&M Chest ALL] ✅ Mengaktifkan ProximityPrompt: " .. prompt.Parent.Name)
-                            task.wait((prompt.HoldDuration or 0.2) + 0.3)
-
-                            -- Remote backup if attributes are found
-                            local parent = prompt.Parent
-                            if parent and remote then
-                                pcall(function()
-                                    local id = parent:GetAttribute("Id") or parent:GetAttribute("Attachment")
-                                    if id then
-                                        remote:InvokeServer(id)
-                                        print("[F&M Chest ALL] ⚡ Remote backup fired with ID: " .. tostring(id))
-                                    end
-                                end)
-                            end
-
-                            hrp.Anchored = false
-                            task.wait(0.2)
-                        end
-                    end
-
-                    Rayfield:Notify({
-                        Title = "Pulau Selesai",
-                        Content = island.name .. " selesai diproses!",
-                        Duration = 3
-                    })
-                    task.wait(1.5)
                 end
             end
 
+            if #activeChests == 0 then
+                Rayfield:Notify({
+                    Title = "Tidak Ada Peti",
+                    Content = "Tidak ditemukan peti aktif (Chest_Local) di map saat ini!",
+                    Duration = 6
+                })
+                return
+            end
 
+            Rayfield:Notify({
+                Title = "🏆 All Islands Chest Run!",
+                Content = "Teleportasi langsung ke " .. #activeChests .. " peti aktif di game...",
+                Duration = 5
+            })
+
+            -- Teleport langsung ke setiap peti aktif (menghindari koordinat NPC di tengah pulau)
+            for idx, prompt in ipairs(activeChests) do
+                local pos = getPromptPosition(prompt)
+                if pos then
+                    print(string.format("[F&M Chest ALL] Teleporting directly to chest %d/%d @ %s", idx, #activeChests, tostring(pos)))
+                    
+                    -- Teleport langsung ke peti dan anchor sejenak agar terrain di bawah peti memuat
+                    hrp.Anchored = true
+                    hrp.CFrame = CFrame.new(pos + Vector3.new(0, 1.5, 0))
+                    task.wait(2.0) -- Beri waktu 2.0 detik agar ground & peti sinkron
+
+                    -- CFrame Stabilizer
+                    for i = 1, 3 do
+                        hrp.CFrame = CFrame.new(pos + Vector3.new(0, 1.5, 0))
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                        task.wait(0.08)
+                    end
+                    task.wait(0.1)
+
+                    -- Unanchor sebelum interaksi agar prompt bisa ditekan
+                    hrp.Anchored = false
+                    task.wait(0.05)
+
+                    -- Fire prompt!
+                    firePrompt(prompt)
+                    totalOpened = totalOpened + 1
+                    print("[F&M Chest ALL] ✅ Mengaktifkan ProximityPrompt: " .. prompt.Parent.Name)
+                    task.wait((prompt.HoldDuration or 0.2) + 0.3)
+
+                    -- Remote bypass backup jika ada attribute spawner
+                    local parent = prompt.Parent
+                    if parent and remote then
+                        pcall(function()
+                            local id = parent:GetAttribute("Id") or parent:GetAttribute("Attachment")
+                            if id then
+                                remote:InvokeServer(id)
+                                print("[F&M Chest ALL] ⚡ Remote backup fired: " .. tostring(id))
+                            end
+                        end)
+                    end
+
+                    hrp.Anchored = false
+                    task.wait(0.3)
+                end
+            end
 
             Rayfield:Notify({
                 Title = "✅ Chest Run Selesai!",
