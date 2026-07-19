@@ -2804,6 +2804,8 @@ local infiniteJump = false
 
 -- Mapping pulau dengan koordinat absolute (Vector3) dari StoryNPC & UnlockIsland scan
 -- Ini menjamin 100% teleport ke tempat yang benar meskipun model pulau belum di-stream oleh game.
+-- Mapping pulau dengan koordinat absolute (Vector3) dari StoryNPC & UnlockIsland scan
+-- Ini menjamin 100% teleport ke tempat yang benar meskipun model pulau belum di-stream oleh game.
 local ISLANDS = {
     { name = "Pulau Bambu",             locationId = "Bamboo",           islandModel = "Island_Bambo",      hangout = "BambooHangout",       coords = Vector3.new(-1445.1, 166.4, 286.2) },
     { name = "Pulau Iceberg",           locationId = "Iceberg",          islandModel = "Island_Snow",       hangout = "SnowHangout",         coords = Vector3.new(-553.8, 239.1, -510.6) },
@@ -2811,8 +2813,58 @@ local ISLANDS = {
     { name = "Pulau Terumbu Bora",      locationId = "Bora Reef",        islandModel = "Island_BoraReef",   hangout = "SkeletonHangout",     coords = Vector3.new(-4030.8, 172.2, 2026.5) },
     { name = "Ventilasi Gunung Berapi", locationId = "Volcano Vent",     islandModel = "Island_Volcano",    hangout = "IslandDragonHangout", coords = Vector3.new(-1725.3, 185.0, 5803.2) },
     { name = "Cape Town",               locationId = "Cape Town",        islandModel = "Seabreeze",         hangout = "Rakit_TiresHangout",  coords = Vector3.new(2382.1, 181.0, -3125.0) },
-    { name = "Seabreeze / Base",        locationId = "SeaBreeze",        islandModel = "Seabreeze",         hangout = "SeabreezeHangout",    coords = Vector3.new(2274.2, 175.9, -2047.5) },
+    { name = "Seabreeze / Base",        locationId = "SeaBreeze",        islandModel = "Seabreeze",         hangout = "SeabreezeHangout",    coords = Vector3.new(-2273.5, 853.0, -5641.1) },
 }
+
+-- Caching koordinat dari workspace.Location secara dynamic saat script di-run
+local function updateCoordsFromWorkspace()
+    local loc = workspace:FindFirstChild("Location")
+    if not loc then return end
+    for _, island in ipairs(ISLANDS) do
+        local folder = loc:FindFirstChild(island.locationId)
+        if folder then
+            -- Cari BasePart atau Attachment di dalam folder secara recursive
+            local foundPos = nil
+            for _, desc in ipairs(folder:GetDescendants()) do
+                if desc:IsA("BasePart") then
+                    foundPos = desc.Position
+                    break
+                elseif desc:IsA("Attachment") then
+                    foundPos = desc.WorldPosition
+                    break
+                end
+            end
+            if foundPos then
+                island.coords = foundPos
+                print(string.format("[F&M Island Cache] Dynamic map: %s -> %s", island.name, tostring(foundPos)))
+            end
+        end
+    end
+end
+-- Panggil otomatis untuk load koordinat dari game
+pcall(updateCoordsFromWorkspace)
+
+-- Helper untuk cek apakah object adalah bagian dari NPC / Player
+local function isNPCOrPlayer(inst)
+    if not inst then return false end
+    -- Cek jika ada Humanoid di ancestor model manapun
+    local model = inst:FindFirstAncestorOfClass("Model")
+    if model and (model:FindFirstChildOfClass("Humanoid") or model:FindFirstChild("HumanoidRootPart")) then
+        return true
+    end
+    -- Filter nama model umum NPC
+    local name = inst.Name:lower()
+    if name:find("npc") or name:find("story") or name:find("seller") or name:find("hermit") or name:find("fisherman") then
+        return true
+    end
+    if model then
+        local modelName = model.Name:lower()
+        if modelName:find("npc") or modelName:find("story") or modelName:find("seller") or modelName:find("hermit") or modelName:find("fisherman") then
+            return true
+        end
+    end
+    return false
+end
 
 -- Cache SpawnService remote
 local cachedHudTeleport = nil
@@ -3221,11 +3273,16 @@ TabPlayer:CreateButton({
             for _, prompt in ipairs(promptsToTrigger) do
                 local parent = prompt.Parent
                 if parent and parent:IsA("BasePart") then
-                    -- Teleport langsung ke chest
-                    hrp.CFrame = CFrame.new(parent.Position + Vector3.new(0, 3, 0))
-                    task.wait(0.3)
+                    -- Teleport langsung ke chest dan anchor player agar tidak tergelincir
+                    hrp.Anchored = true
+                    hrp.CFrame = CFrame.new(parent.Position)
+                    task.wait(0.2)
+                    
                     firePrompt(prompt)
                     opened = opened + 1
+                    task.wait(prompt.HoldDuration + 0.3)
+                    
+                    hrp.Anchored = false
                     task.wait(0.2)
                 end
             end
@@ -3263,6 +3320,9 @@ TabPlayer:CreateButton({
                 Duration = 5
             })
 
+            -- Refresh dynamic coordinates sebelum run
+            pcall(updateCoordsFromWorkspace)
+
             for islandIdx, island in ipairs(ISLANDS) do
                 -- Jangan run di base/lobby (index 7)
                 if islandIdx <= 6 then
@@ -3277,11 +3337,14 @@ TabPlayer:CreateButton({
                     local islandFolder = treasureSpawns and treasureSpawns:FindFirstChild("Island" .. islandIdx)
 
                     if islandFolder then
-                        -- Dapatkan semua titik spawner chest
+                        -- Dapatkan semua titik spawner chest (pastikan bukan NPC!)
                         local spawnPoints = {}
                         for _, child in ipairs(islandFolder:GetDescendants()) do
-                            if child:IsA("Attachment") or child:IsA("BasePart") then
-                                table.insert(spawnPoints, child)
+                            if (child:IsA("Attachment") or child:IsA("BasePart")) and not isNPCOrPlayer(child) then
+                                local nm = child.Name:lower()
+                                if nm:find("spawn") or nm:find("chest") or nm:find("treasure") or nm:find("loot") or child:IsA("Attachment") then
+                                    table.insert(spawnPoints, child)
+                                end
                             end
                         end
 
@@ -3291,24 +3354,25 @@ TabPlayer:CreateButton({
                         for _, spawnPoint in ipairs(spawnPoints) do
                             local pos = spawnPoint:IsA("Attachment") and spawnPoint.WorldPosition or spawnPoint.Position
                             
-                            -- Teleport ke titik spawner
-                            hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
-                            task.wait(0.4) -- Beri waktu asset untuk stream-in / spawn
+                            -- Teleport dan anchor player agar posisi 100% pas
+                            hrp.Anchored = true
+                            hrp.CFrame = CFrame.new(pos)
+                            task.wait(0.3) -- Beri waktu asset untuk stream-in / spawn
 
-                            -- Cari ProximityPrompt di dekat player (radius 20 studs)
-                            local prompts = getNearbyChestPrompts(20)
+                            -- Cari ProximityPrompt di dekat player (radius 15 studs)
+                            local prompts = getNearbyChestPrompts(15)
                             for _, prompt in ipairs(prompts) do
                                 firePrompt(prompt)
                                 totalOpened = totalOpened + 1
                                 print("[F&M Chest ALL] ✅ Mengaktifkan ProximityPrompt: " .. prompt.Parent.Name)
-                                task.wait(0.2)
+                                task.wait(prompt.HoldDuration + 0.3)
                             end
 
                             -- Cari CHEST_ remote target di dekat player
                             for _, desc in ipairs(workspace:GetDescendants()) do
                                 if desc:IsA("Attachment") and desc.Name:match("^CHEST_") then
                                     local dist = (desc.WorldPosition - hrp.Position).Magnitude
-                                    if dist < 25 and remote then
+                                    if dist < 20 and remote then
                                         pcall(function() remote:InvokeServer(desc.Name) end)
                                         totalOpened = totalOpened + 1
                                         print("[F&M Chest ALL] ⚡ Fired remote chest: " .. desc.Name)
@@ -3316,6 +3380,10 @@ TabPlayer:CreateButton({
                                     end
                                 end
                             end
+
+                            -- Lepaskan anchor untuk pindah ke spawner berikutnya
+                            hrp.Anchored = false
+                            task.wait(0.1)
                         end
                     else
                         print("[F&M Chest ALL] Folder TreasureSpawns.Island" .. islandIdx .. " tidak ditemukan!")
