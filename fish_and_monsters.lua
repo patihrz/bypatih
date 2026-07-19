@@ -3355,7 +3355,11 @@ TabPlayer:CreateButton({
                     
                     firePrompt(prompt)
                     opened = opened + 1
-                    task.wait((prompt.HoldDuration or 0.2) + 0.3)
+                    
+                    -- SANGAT PENTING: Anchor kembali player saat menunggu klaim
+                    -- Ini mencegah player meluncur keluar dari radius interaksi sebelum server menyetujui klaim!
+                    hrp.Anchored = true
+                    task.wait((prompt.HoldDuration or 0.6) + 1.0)
                     
                     hrp.Anchored = false
                     task.wait(0.2)
@@ -3445,7 +3449,11 @@ TabPlayer:CreateButton({
                     firePrompt(prompt)
                     totalOpened = totalOpened + 1
                     print("[F&M Chest ALL] ✅ Mengaktifkan ProximityPrompt: " .. prompt.Parent.Name)
-                    task.wait((prompt.HoldDuration or 0.2) + 0.3)
+                    
+                    -- SANGAT PENTING: Anchor kembali player saat menunggu klaim
+                    -- Ini mencegah player berpindah sebelum server selesai menyetujui klaim peti!
+                    hrp.Anchored = true
+                    task.wait((prompt.HoldDuration or 0.6) + 1.0)
 
                     -- Remote bypass backup jika ada attribute spawner
                     local parent = prompt.Parent
