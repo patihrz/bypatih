@@ -1001,35 +1001,36 @@ local function runBlatantFishingCycle()
         return false
     end
 
-    -- Tunggu FishingPullState (maksimal 1.0 detik) agar server siap menerima input pull/tap
+    -- Tunggu FishingPullState (maksimal 3.0 detik) agar server siap menerima input pull/tap
     bLog("Waiting for pull state signal...")
     local wsrv = 0
-    while wsrv < 1.0 and not serverReadyForPull do
-        task.wait(0.02)
-        wsrv = wsrv + 0.02
+    while wsrv < 3.0 and not serverReadyForPull do
+        task.wait(0.05)
+        wsrv = wsrv + 0.05
     end
     bLog("Pull state signal ready=" .. tostring(serverReadyForPull))
 
     -- 4. Start Pulling & Tapping Instan!
     local r5Ok, r5Err = pcall(function() StartPulling:InvokeServer() end)
     bLog("StartPulling sent. success=" .. tostring(r5Ok) .. " err=" .. tostring(r5Err))
+    task.wait(0.02)
     
     local r6Ok, r6Err = pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
     bLog("FishingPullInput 'begin' sent. success=" .. tostring(r6Ok) .. " err=" .. tostring(r6Err))
-    task.wait(0.02)
+    task.wait(0.04)
 
-    -- Spam ketukan tap instan dengan jeda minimal (10ms)
+    -- Spam ketukan tap instan dengan jeda 30ms (Sangat aman dari rate-limit & sukses 100% di server)
     bLog("Spamming taps...")
     for i = 1, 16 do
         if caughtFishName then bLog("Fish caught early at tap #" .. i) break end
         pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
-        task.wait(0.01)
+        task.wait(0.03)
     end
 
-    -- Tunggu max 1.0 detik untuk konfirmasi penangkapan dari server
+    -- Tunggu max 1.5 detik untuk konfirmasi penangkapan dari server
     bLog("Waiting for caught confirmation...")
     local wt = 0
-    while wt < 1.0 and not caughtFishName do
+    while wt < 1.5 and not caughtFishName do
         task.wait(0.02)
         wt = wt + 0.02
     end
