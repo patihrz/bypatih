@@ -81,6 +81,15 @@ local antiAFK = false
 local antiAFKConnection = nil
 local antiAFKToggle = nil
 
+local blatantDebugLogs = {}
+local function bLog(str)
+    local formatted = string.format("[%s] %s", os.date("%X"), str)
+    table.insert(blatantDebugLogs, formatted)
+    if #blatantDebugLogs > 150 then table.remove(blatantDebugLogs, 1) end
+    print(formatted)
+end
+
+
 local sellCommon = true
 local sellUncommon = true
 local sellRare = true
@@ -722,8 +731,13 @@ TabFishing:CreateButton({
                 log(string.format("  Floater Found: %s | Class: %s | Path: %s", desc.Name, desc.ClassName, desc:GetFullName()))
             end
         end
-        if floaterCount == 0 then
-            log("  No active floaters found in workspace.")
+        log("\n[6] BLATANT FISHING EXECUTION LOGS:")
+        if #blatantDebugLogs == 0 then
+            log("  No blatant fishing execution logs recorded yet. Turn on Blatant Fishing first!")
+        else
+            for _, line in ipairs(blatantDebugLogs) do
+                log("  " .. line)
+            end
         end
 
         log("\n========================================")
@@ -833,6 +847,7 @@ end
 -- BLATANT FISHING (Max Speed, Terpisah)
 ----------------------------------------------------
 local function runBlatantFishingCycle()
+    bLog("--- BLATANT CYCLE START ---")
     local ThrowFloater        = findKnitRemote("FishingReplicationService", "ThrowFloater")
     local ConfirmFloatingCast = findKnitRemote("FishingReplicationService", "ConfirmFloatingCast")
     local StartFishing        = findKnitRemote("FishingReplicationService", "StartFishing")
@@ -845,12 +860,14 @@ local function runBlatantFishingCycle()
     local FishingPullState    = findKnitRemote("FishingRewardService",      "FishingPullState")
 
     if not (ThrowFloater and ConfirmFloatingCast and StartPulling and StopFishing and FishingPullInput) then
+        bLog("ERROR: Missing core remotes!")
         return false
     end
 
     equipRod()
     local rod = getRod()
     local activeRodName = rod and rod.Name or rodNameInput
+    bLog("Active Rod: " .. tostring(activeRodName))
 
     local activeFloaterName = floaterNameInput
     for k, v in pairs(LP:GetAttributes()) do
@@ -859,22 +876,29 @@ local function runBlatantFishingCycle()
             break
         end
     end
+    bLog("Active Floater: " .. tostring(activeFloaterName))
 
     -- Reset state & start new session
-    pcall(function() StopFishing:InvokeServer() end)
+    local r1Ok, r1Err = pcall(function() StopFishing:InvokeServer() end)
+    bLog("StopFishing (reset) sent. success=" .. tostring(r1Ok) .. " err=" .. tostring(r1Err))
     task.wait(0.1)
+
     if StartFishing then
-        pcall(function() StartFishing:InvokeServer(activeRodName, activeFloaterName) end)
+        local r2Ok, r2Err = pcall(function() StartFishing:InvokeServer(activeRodName, activeFloaterName) end)
+        bLog("StartFishing sent. success=" .. tostring(r2Ok) .. " err=" .. tostring(r2Err))
     end
 
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return false end
+    if not hrp then bLog("ERROR: Character or HRP missing!") return false end
 
     local origin = hrp.Position
     local target = getWaterTarget(origin)
+    bLog("Target coordinates: " .. tostring(target))
+
     local floatConfig = {LightInfluence=0, FaceCamera=true, Color=Color3.new(0.94,0.31,1), Transparency=0.02, LightEmission=1, Width=0.24}
     local oldCastId = LP:GetAttribute("FishingCastId") or ""
+    bLog("Current FishingCastId: " .. tostring(oldCastId))
 
     -- Listener lokal (sangat hemat memori & CPU, auto disconnect)
     local caughtFishName = nil
@@ -891,10 +915,14 @@ local function runBlatantFishingCycle()
             for _, v in ipairs({...}) do
                 if type(v) == "string" and v ~= "" and not v:match("^%x+-%x+-%x+-%x+-%x+$") then
                     caughtFishName = v
+                    bLog("Event FishCaught received: " .. tostring(caughtFishName))
                 end
                 if type(v) == "table" then
                     local n = extractFishName(v)
-                    if n then caughtFishName = n end
+                    if n then 
+                        caughtFishName = n 
+                        bLog("Event FishCaught (table) parsed: " .. tostring(caughtFishName))
+                    end
                 end
             end
         end)
@@ -905,10 +933,14 @@ local function runBlatantFishingCycle()
             for _, v in ipairs({...}) do
                 if type(v) == "string" and v ~= "" and not v:match("^%x+-%x+-%x+-%x+-%x+$") then
                     caughtFishName = v
+                    bLog("Event FishingSuccess received: " .. tostring(caughtFishName))
                 end
                 if type(v) == "table" then
                     local n = extractFishName(v)
-                    if n then caughtFishName = n end
+                    if n then 
+                        caughtFishName = n 
+                        bLog("Event FishingSuccess (table) parsed: " .. tostring(caughtFishName))
+                    end
                 end
             end
         end)
@@ -917,15 +949,18 @@ local function runBlatantFishingCycle()
     if FishingPullState and FishingPullState:IsA("RemoteEvent") then
         connections[#connections+1] = FishingPullState.OnClientEvent:Connect(function(...)
             serverReadyForPull = true
+            bLog("Event FishingPullState received!")
         end)
     end
 
     -- 1. Throw Floater
-    pcall(function() ThrowFloater:InvokeServer(origin, target, activeRodName, activeFloaterName, floatConfig, 2.5) end)
-    task.wait(0.2) -- Jeda aman agar server mencatat cast
+    local r3Ok, r3Err = pcall(function() ThrowFloater:InvokeServer(origin, target, activeRodName, activeFloaterName, floatConfig, 2.5) end)
+    bLog("ThrowFloater sent. success=" .. tostring(r3Ok) .. " err=" .. tostring(r3Err))
+    task.wait(0.2)
 
     -- 2. Confirm Cast
-    pcall(function() ConfirmFloatingCast:InvokeServer(target) end)
+    local r4Ok, r4Err = pcall(function() ConfirmFloatingCast:InvokeServer(target) end)
+    bLog("ConfirmFloatingCast sent. success=" .. tostring(r4Ok) .. " err=" .. tostring(r4Err))
     task.wait(0.05)
 
     -- 3. Request Bite & Ambil UUID Instan
@@ -933,6 +968,7 @@ local function runBlatantFishingCycle()
     local biteOk, biteData = pcall(function()
         return RequestFishBite:InvokeServer(target + Vector3.new(0, 0.1, 0))
     end)
+    bLog("RequestFishBite sent. success=" .. tostring(biteOk) .. " typeof(data)=" .. typeof(biteData))
     if biteOk then
         if type(biteData) == "table" then
             uuid = biteData.SessionId or biteData.sessionId or biteData.castId or biteData.CastId or extractUUID(biteData)
@@ -940,14 +976,17 @@ local function runBlatantFishingCycle()
             uuid = biteData
         end
     end
+    bLog("RequestFishBite UUID result: " .. tostring(uuid))
 
     -- Fallback tunggu bite dari server jika belum ter-assign (max 2.5 detik)
     if not uuid or uuid == "" or uuid == oldCastId then
+        bLog("UUID missing, entering 2.5s fallback loop...")
         local w = 0
         while w < 2.5 do
             local castId = LP:GetAttribute("FishingCastId")
             if castId and castId ~= "" and castId ~= oldCastId then
                 uuid = castId
+                bLog("Fallback UUID resolved: " .. tostring(uuid))
                 break
             end
             task.wait(0.05)
@@ -956,45 +995,56 @@ local function runBlatantFishingCycle()
     end
 
     if not uuid then
+        bLog("ERROR: UUID is still NIL after fallback! Aborting.")
         disconnectAll()
         pcall(function() StopFishing:InvokeServer() end)
         return false
     end
 
     -- Tunggu FishingPullState (maksimal 1.0 detik) agar server siap menerima input pull/tap
+    bLog("Waiting for pull state signal...")
     local wsrv = 0
     while wsrv < 1.0 and not serverReadyForPull do
         task.wait(0.02)
         wsrv = wsrv + 0.02
     end
+    bLog("Pull state signal ready=" .. tostring(serverReadyForPull))
 
     -- 4. Start Pulling & Tapping Instan!
-    pcall(function() StartPulling:InvokeServer() end)
-    pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
+    local r5Ok, r5Err = pcall(function() StartPulling:InvokeServer() end)
+    bLog("StartPulling sent. success=" .. tostring(r5Ok) .. " err=" .. tostring(r5Err))
+    
+    local r6Ok, r6Err = pcall(function() FishingPullInput:InvokeServer(uuid, "begin") end)
+    bLog("FishingPullInput 'begin' sent. success=" .. tostring(r6Ok) .. " err=" .. tostring(r6Err))
     task.wait(0.02)
 
     -- Spam ketukan tap instan dengan jeda minimal (10ms)
+    bLog("Spamming taps...")
     for i = 1, 16 do
-        if caughtFishName then break end
+        if caughtFishName then bLog("Fish caught early at tap #" .. i) break end
         pcall(function() FishingPullInput:InvokeServer(uuid, "tap") end)
         task.wait(0.01)
     end
 
     -- Tunggu max 1.0 detik untuk konfirmasi penangkapan dari server
+    bLog("Waiting for caught confirmation...")
     local wt = 0
     while wt < 1.0 and not caughtFishName do
         task.wait(0.02)
         wt = wt + 0.02
     end
+    bLog("Catch confirmed=" .. tostring(caughtFishName ~= nil) .. " fishName=" .. tostring(caughtFishName))
 
     disconnectAll()
 
     -- 5. Klaim & Hentikan Sesi
-    pcall(function() StopFishing:InvokeServer() end)
+    local r7Ok, r7Err = pcall(function() StopFishing:InvokeServer() end)
+    bLog("StopFishing (claim) sent. success=" .. tostring(r7Ok) .. " err=" .. tostring(r7Err))
     task.wait(0.05)
 
     -- Tutup banner secara instan
     dismissCaughtBanner()
+    bLog("--- BLATANT CYCLE COMPLETED ---")
     return true
 end
 
@@ -1005,6 +1055,7 @@ task.spawn(function()
         if autoBlatantFishing then
             local ok, err = pcall(runBlatantFishingCycle)
             if not ok then
+                bLog("LOOP ERROR (V1): " .. tostring(err))
                 task.wait(0.5)
             end
         end
