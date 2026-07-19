@@ -2802,45 +2802,105 @@ local infiniteJump = false
 -- ISLAND TELEPORT (TabPlayer)
 ----------------------------------------------------
 
--- Daftar pulau: { displayName, keywords untuk cari di workspace }
+-- Mapping pulau: displayName, nama Hangout model di workspace, keywords fallback
+-- Berdasarkan hasil scan: BambooHangout, SnowHangout, SkeletonHangout, SeabreezeHangout,
+--                         IslandDragonHangout, RakitTiresHangout
 local ISLANDS = {
-    { name = "Pulau Bambu",             keys = {"bambu", "bamboo", "bamboo island", "pulau bambu"} },
-    { name = "Pulau Iceberg",           keys = {"iceberg", "ice", "pulau iceberg"} },
-    { name = "Pulau Paus yang Hilang",  keys = {"paus", "whale", "hilang", "missing whale"} },
-    { name = "Pulau Terumbu Bora",      keys = {"terumbu", "bora", "reef", "coral"} },
-    { name = "Ventilasi Gunung Berapi", keys = {"ventilasi", "berapi", "volcano", "volcanic", "gunung"} },
-    { name = "Cape Town",               keys = {"cape", "capetown", "cape town", "kota"} },
-    { name = "Base / Lobby",            keys = {"base", "lobby", "spawn", "start", "home"} },
+    { name = "Pulau Bambu",             hangout = "BambooHangout",       hudId = "Bambu",         keys = {"bambu", "bamboo"} },
+    { name = "Pulau Iceberg",           hangout = "SnowHangout",         hudId = "Iceberg",       keys = {"iceberg", "snow", "ice"} },
+    { name = "Pulau Paus yang Hilang",  hangout = "SeabreezeHangout",    hudId = "Paus",          keys = {"paus", "whale", "seabreeze", "hilang"} },
+    { name = "Pulau Terumbu Bora",      hangout = "SkeletonHangout",     hudId = "Terumbu",       keys = {"terumbu", "bora", "reef", "skeleton"} },
+    { name = "Ventilasi Gunung Berapi", hangout = "IslandDragonHangout", hudId = "Berapi",        keys = {"ventilasi", "berapi", "volcano", "dragon"} },
+    { name = "Cape Town",               hangout = "RakitTiresHangout",   hudId = "CapeTown",      keys = {"cape", "rakit", "tires", "capetown"} },
+    { name = "Base / Fishing Village",  hangout = "Fishing_Village",     hudId = "Base",          keys = {"base", "fishing", "village", "lobby"} },
 }
 
--- Coba teleport via Knit TeleportController remote
-local function tryKnitTeleport(islandName)
-    -- Cari service TeleportService atau TeleportController
-    local teleportRemote = findKnitRemote("TeleportController", "TeleportToIsland")
-        or findKnitRemote("TeleportController", "Teleport")
-        or findKnitRemote("TeleportController", "TeleportTo")
-        or findKnitRemote("SeaLobbyController", "TeleportToIsland")
-        or findKnitRemote("BoatSpawnController", "TeleportToIsland")
-    if teleportRemote then
-        local ok, err = pcall(function()
-            if teleportRemote:IsA("RemoteFunction") then
-                teleportRemote:InvokeServer(islandName)
-            else
-                teleportRemote:FireServer(islandName)
+-- Cache SpawnService remote
+local cachedHudTeleport = nil
+local function getHudTeleportRemote()
+    if cachedHudTeleport and cachedHudTeleport.Parent then return cachedHudTeleport end
+    -- Remote: SpawnService.RF.RequestHudTeleport (ditemukan dari scan)
+    local r = findKnitRemote("SpawnService", "RequestHudTeleport")
+    if r then
+        cachedHudTeleport = r
+        return r
+    end
+    -- Fallback scan manual
+    for _, obj in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+        if (obj:IsA("RemoteFunction") or obj:IsA("RemoteEvent")) then
+            local nm = obj.Name:lower()
+            if nm == "requesthudteleport" or nm == "hudteleport" or nm:find("hud") then
+                cachedHudTeleport = obj
+                return obj
             end
-        end)
-        if ok then
-            print("[F&M Island] Knit Teleport fired: " .. islandName)
-            return true
-        else
-            warn("[F&M Island] Knit Teleport error: " .. tostring(err))
         end
     end
-    return false
+    return nil
 end
 
--- Coba klik tombol GUI island selector di PlayerGui
-local function tryGUITeleport(keywords)
+-- Fungsi utama teleport ke pulau
+local function teleportToIsland(islandData)
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+
+    -- 1. Coba RequestHudTeleport dari SpawnService (PALING MULUS - server handle)
+    local hudRemote = getHudTeleportRemote()
+    if hudRemote then
+        -- Coba berbagai format parameter
+        local paramFormats = {
+            islandData.hudId,       -- "Bambu"
+            islandData.hangout,     -- "BambooHangout"
+            islandData.name,        -- "Pulau Bambu"
+        }
+        for _, param in ipairs(paramFormats) do
+            local ok, result = pcall(function()
+                if hudRemote:IsA("RemoteFunction") then
+                    return hudRemote:InvokeServer(param)
+                else
+                    hudRemote:FireServer(param)
+                    return true
+                end
+            end)
+            if ok then
+                print("[F&M Island] RequestHudTeleport fired with param: " .. tostring(param))
+                return true, "Teleport via HudTeleport: " .. islandData.name .. " (param: " .. tostring(param) .. ")"
+            end
+        end
+    end
+
+    -- 2. Teleport langsung ke Hangout model di workspace
+    local hangoutModel = workspace:FindFirstChild(islandData.hangout, true)
+        or workspace:FindFirstChild("Island") and workspace:FindFirstChild("Island"):FindFirstChild(islandData.hangout, true)
+    if hangoutModel then
+        if hrp then
+            local targetPart = hangoutModel:IsA("BasePart") and hangoutModel
+                or hangoutModel.PrimaryPart
+                or hangoutModel:FindFirstChildWhichIsA("BasePart")
+            if targetPart then
+                hrp.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 8, 0))
+                print("[F&M Island] Teleport to Hangout model: " .. islandData.hangout)
+                return true, "Teleport ke " .. islandData.name .. " (via Hangout model)"
+            end
+        end
+    end
+
+    -- 3. Scan workspace.Island folder untuk anak-anaknya
+    local islandFolder = workspace:FindFirstChild("Island")
+    if islandFolder then
+        for _, kw in ipairs(islandData.keys) do
+            for _, child in ipairs(islandFolder:GetDescendants()) do
+                if (child:IsA("BasePart") or child:IsA("Model")) and child.Name:lower():find(kw, 1, true) then
+                    local targetPart = child:IsA("BasePart") and child or (child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart"))
+                    if targetPart and hrp then
+                        hrp.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 8, 0))
+                        return true, "Teleport via Island folder: " .. child.Name
+                    end
+                end
+            end
+        end
+    end
+
+    -- 4. Klik tombol GUI island selector jika terbuka
     for _, gui in ipairs(LP.PlayerGui:GetDescendants()) do
         if (gui:IsA("TextButton") or gui:IsA("ImageButton")) and isGuiVisible(gui) then
             local fullName = gui:GetFullName():lower()
@@ -2848,9 +2908,9 @@ local function tryGUITeleport(keywords)
                 local text = ""
                 pcall(function() text = gui.Text:lower() end)
                 local name = gui.Name:lower()
-                for _, kw in ipairs(keywords) do
+                for _, kw in ipairs(islandData.keys) do
                     if text:find(kw, 1, true) or name:find(kw, 1, true) then
-                        print("[F&M Island] GUI teleport click: " .. gui:GetFullName())
+                        print("[F&M Island] GUI click: " .. gui:GetFullName())
                         pcall(function()
                             if typeof(firesignal) == "function" then
                                 firesignal(gui.MouseButton1Click)
@@ -2860,79 +2920,20 @@ local function tryGUITeleport(keywords)
                                 gui.Activated:Fire()
                             end
                         end)
-                        return true
+                        return true, "GUI click: " .. islandData.name
                     end
                 end
             end
         end
     end
-    return false
-end
 
--- Cari Part / SpawnLocation / Model di workspace berdasarkan keyword
-local function findIslandPartInWorkspace(keywords)
-    -- 1. SpawnLocation
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("SpawnLocation") then
-            local nm = obj.Name:lower()
-            for _, kw in ipairs(keywords) do
-                if nm:find(kw, 1, true) then
-                    print("[F&M Island] SpawnLocation found: " .. obj:GetFullName())
-                    return obj
-                end
-            end
-        end
-    end
-    -- 2. Model / Part dengan nama cocok
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if (obj:IsA("BasePart") or obj:IsA("Model")) then
-            local nm = obj.Name:lower()
-            for _, kw in ipairs(keywords) do
-                if nm:find(kw, 1, true) then
-                    local part = obj:IsA("BasePart") and obj or (obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart"))
-                    if part then
-                        print("[F&M Island] Workspace match found: " .. obj:GetFullName())
-                        return part
-                    end
-                end
-            end
-        end
-    end
-    return nil
-end
-
--- Fungsi utama teleport ke pulau
-local function teleportToIsland(islandData)
-    local keywords = islandData.keys
-
-    -- 1. Coba via Knit TeleportController
-    if tryKnitTeleport(islandData.name) then
-        return true, "Teleport via TeleportController: " .. islandData.name
-    end
-
-    -- 2. Cari di workspace
-    local part = findIslandPartInWorkspace(keywords)
-    if part then
-        local char = LP.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            hrp.CFrame = CFrame.new(part.Position + Vector3.new(0, 8, 0))
-            return true, "Teleport to workspace: " .. part.Name
-        end
-    end
-
-    -- 3. Klik GUI island button
-    if tryGUITeleport(keywords) then
-        return true, "GUI click: " .. islandData.name
-    end
-
-    return false, "Island tidak ditemukan di workspace maupun GUI. Coba scan debug dulu!"
+    return false, "Gagal: " .. islandData.name .. ". Cek console untuk detail!"
 end
 
 TabPlayer:CreateSection("Island Teleport")
 
 for _, island in ipairs(ISLANDS) do
-    local islandCopy = island -- capture
+    local islandCopy = island
     TabPlayer:CreateButton({
         Name = "⛵ " .. island.name,
         Callback = function()
@@ -2947,44 +2948,58 @@ for _, island in ipairs(ISLANDS) do
 end
 
 TabPlayer:CreateButton({
-    Name = "[DEBUG] Scan Island Workspace",
+    Name = "[DEBUG] Scan Island Folder & Remotes",
     Callback = function()
-        print("=== ISLAND WORKSPACE SCAN ===")
-        -- Scan SpawnLocations
-        print("--- SpawnLocations ---")
-        local countSL = 0
+        print("=== ISLAND DETAIL SCAN ===")
+        -- Isi Folder Island di workspace
+        local islandFolder = workspace:FindFirstChild("Island")
+        if islandFolder then
+            print("--- workspace.Island children ---")
+            for _, child in ipairs(islandFolder:GetChildren()) do
+                print("  " .. child.ClassName .. ": " .. child.Name)
+            end
+        else
+            print("  [Island folder NOT FOUND in workspace]")
+        end
+        -- Isi Folder Location
+        local locFolder = workspace:FindFirstChild("Location")
+        if locFolder then
+            print("--- workspace.Location children ---")
+            for _, child in ipairs(locFolder:GetChildren()) do
+                local pos = ""
+                pcall(function()
+                    local p = child:IsA("BasePart") and child or child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")
+                    if p then pos = " @ " .. tostring(p.Position) end
+                end)
+                print("  " .. child.ClassName .. ": " .. child.Name .. pos)
+            end
+        else
+            print("  [Location folder NOT FOUND in workspace]")
+        end
+        -- Semua hangout models
+        print("--- *Hangout Models ---")
         for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("SpawnLocation") then
-                print("  SpawnLocation: " .. obj.Name .. " @ " .. tostring(obj.Position))
-                countSL = countSL + 1
-                if countSL >= 20 then break end
+            if obj.Name:lower():find("hangout") or obj.Name:lower():find("island") then
+                local pos = ""
+                pcall(function()
+                    local p = obj:IsA("BasePart") and obj or obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+                    if p then pos = " @ " .. tostring(p.Position) end
+                end)
+                print("  " .. obj.ClassName .. ": " .. obj.Name .. " (" .. obj:GetFullName() .. ")" .. pos)
             end
         end
-        -- Scan Models/Folders bernama island
-        print("--- Models (top 30) ---")
-        local countM = 0
-        for _, obj in ipairs(workspace:GetChildren()) do
-            if obj:IsA("Model") or obj:IsA("Folder") then
-                print("  " .. obj.ClassName .. ": " .. obj.Name)
-                countM = countM + 1
-                if countM >= 30 then break end
-            end
-        end
-        -- Cek apakah TeleportController remote ada
-        print("--- Knit TeleportController Remotes ---")
-        local rs = game:GetService("ReplicatedStorage")
-        for _, obj in ipairs(rs:GetDescendants()) do
-            if (obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction")) then
-                local nm = obj.Name:lower()
-                if nm:find("teleport") or nm:find("island") or nm:find("travel") or nm:find("warp") then
-                    print("  REMOTE: " .. obj:GetFullName())
-                end
+        -- SpawnService remotes detail
+        print("--- SpawnService Remotes ---")
+        for _, obj in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+            if (obj:IsA("RemoteFunction") or obj:IsA("RemoteEvent")) and obj:GetFullName():lower():find("spawnservice") then
+                print("  " .. obj.ClassName .. ": " .. obj.Name .. " => " .. obj:GetFullName())
             end
         end
         print("=== END SCAN ===")
-        Rayfield:Notify({Title = "Scan Selesai!", Content = "Cek console (F9) untuk hasil.", Duration = 4})
+        Rayfield:Notify({Title = "Scan Done!", Content = "Cek console F9 untuk detail Island folder & Hangout positions!", Duration = 5})
     end
 })
+
 
 TabPlayer:CreateSection("Character Modifiers")
 
